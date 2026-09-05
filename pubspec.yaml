@@ -1,0 +1,74 @@
+name: bfp_gis_rosario
+description: Cross-Platform GIS for Fire Incident Reporting and Emergency Responses for BFP Rosario, Batangas.
+publish_to: 'none'
+
+version: 1.0.1+2
+
+environment:
+  sdk: ">=3.8.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.8
+
+  # ==========================
+  # Firebase
+  # ==========================
+  firebase_core: ^4.11.0
+  firebase_auth: ^6.5.4
+  cloud_firestore: ^6.6.0
+  google_sign_in: ^7.1.1
+  flutter_facebook_auth: ^7.1.2
+
+  # Firebase Storage
+  # Uncomment this kapag naka-Blaze plan na
+  # firebase_storage: ^13.4.3
+
+  # ==========================
+  # State Management
+  # ==========================
+  provider: ^6.1.5
+
+  # ==========================
+  # GIS (FREE)
+  # ==========================
+  flutter_map: ^8.2.1
+  latlong2: ^0.9.1
+
+  # GPS
+  geolocator: ^14.0.2
+  geocoding: ^4.0.0
+
+  # ==========================
+  # Camera
+  # ==========================
+  image_picker: ^1.1.2
+
+  # ==========================
+  # Date Formatting
+  # ==========================
+  intl: ^0.20.2
+
+  # ==========================
+  # Loading
+  # ==========================
+  flutter_spinkit: ^5.2.1
+  url_launcher: ^6.3.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  flutter_lints: ^6.0.0
+
+  flutter_launcher_icons: ^0.14.4
+  flutter_native_splash: ^2.4.6
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/images/
+    - assets/icons/

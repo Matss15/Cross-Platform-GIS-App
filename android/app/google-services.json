@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "886535672450",
+    "project_id": "gis-cross-platform",
+    "storage_bucket": "gis-cross-platform.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:886535672450:android:21565ff75a24a08c905a9b",
+        "android_client_info": {
+          "package_name": "com.bfprosario.emergencyresponse"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDR-KbT79fF-9qBpCpakRSIsf8v-Wb2Ig0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

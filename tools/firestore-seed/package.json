@@ -1,0 +1,12 @@
+{
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "seed": "node seed-firestore.mjs",
+    "ensure-super-admin": "node ensure-super-admin.mjs",
+    "reset-accounts": "node reset-accounts.mjs"
+  },
+  "dependencies": {
+    "firebase-admin": "^13.0.0"
+  }
+}

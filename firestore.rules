@@ -1,0 +1,226 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function userPath() {
+      return /databases/$(database)/documents/users/$(request.auth.uid);
+    }
+
+    function hasUserDoc() {
+      return signedIn() && exists(userPath());
+    }
+
+    function role() {
+      return hasUserDoc() ? get(userPath()).data.role : '';
+    }
+
+    function isAdmin() {
+      return role() == 'admin';
+    }
+
+    function isSuperAdmin() {
+      return isAdmin()
+        && get(userPath()).data.adminLevel == 'super'
+        && get(userPath()).data.email == 'akoangadmin@gmail.com';
+    }
+
+    function isBfp() {
+      return role() == 'bfp' || isAdmin();
+    }
+
+    function isBarangay() {
+      return role() == 'barangay' || isBfp();
+    }
+
+    function managedAccountRole() {
+      return request.resource.data.role in ['resident', 'barangay', 'bfp'];
+    }
+
+    function isCitizenSelfRegistration(userId) {
+      return signedIn()
+        && request.auth.uid == userId
+        && request.resource.data.keys().hasOnly([
+          'uid',
+          'fullName',
+          'email',
+          'phone',
+          'address',
+          'role',
+          'barangayId',
+          'barangayName',
+          'profileImage',
+          'latitude',
+          'longitude',
+          'isVerified',
+          'birthdate',
+          'emergencyContactName',
+          'emergencyContactPhone',
+          'biodata',
+          'policyVersion',
+          'policyAcceptedAt',
+          'createdAt',
+          'updatedAt',
+        ])
+        && request.resource.data.uid == userId
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.role == 'resident'
+        && request.resource.data.isVerified == false
+        && request.resource.data.policyVersion == '2026-07-20'
+        && request.resource.data.policyAcceptedAt == request.time;
+    }
+
+    function keepsProtectedUserFields() {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+        'uid',
+        'email',
+        'role',
+        'adminLevel',
+        'isVerified',
+        'createdBy',
+        'policyVersion',
+        'policyAcceptedAt',
+        'createdAt',
+      ]);
+    }
+
+    function isVerificationUpdate() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'isVerified',
+          'verificationMethod',
+          'verifiedBy',
+          'verifiedAt',
+          'updatedAt',
+        ])
+        && request.resource.data.isVerified == true
+        && request.resource.data.verificationMethod == 'admin_review'
+        && request.resource.data.verifiedBy == request.auth.uid
+        && request.resource.data.verifiedAt == request.time;
+    }
+
+    function isOwnEmailIndexWrite() {
+      return signedIn()
+        && hasUserDoc()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.email == get(userPath()).data.email
+        && request.resource.data.role == role();
+    }
+
+    function validActivityLogCreate() {
+      return request.resource.data.keys().hasOnly([
+          'actorUid',
+          'actorEmail',
+          'action',
+          'targetId',
+          'targetLabel',
+          'metadata',
+          'createdAt',
+        ])
+        && request.resource.data.actorUid == request.auth.uid
+        && request.resource.data.actorEmail == request.auth.token.email
+        && request.resource.data.action is string
+        && request.resource.data.action.size() > 0
+        && request.resource.data.action.size() <= 100
+        && request.resource.data.targetId is string
+        && request.resource.data.targetId.size() <= 200
+        && request.resource.data.targetLabel is string
+        && request.resource.data.targetLabel.size() <= 200
+        && request.resource.data.metadata is map
+        && request.resource.data.createdAt == request.time;
+    }
+
+    function isOwnIncidentCreate() {
+      return signedIn()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.reporterId == request.auth.uid
+        && request.resource.data.latitude is number
+        && request.resource.data.longitude is number
+        && request.resource.data.latitude >= 13.765
+        && request.resource.data.latitude <= 13.925
+        && request.resource.data.longitude >= 121.085
+        && request.resource.data.longitude <= 121.335;
+    }
+
+    function keepsIncidentOwnership() {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+        'uid',
+        'reporterId',
+        'createdAt',
+      ]);
+    }
+
+    match /users/{userId} {
+      allow read: if signedIn() && (request.auth.uid == userId || isBarangay());
+      allow create: if signedIn()
+        && (
+          (
+            isSuperAdmin()
+            && request.resource.data.uid == userId
+            && managedAccountRole()
+          )
+          || isCitizenSelfRegistration(userId)
+        );
+      allow update: if signedIn()
+        && (
+          (request.auth.uid == userId && keepsProtectedUserFields())
+          || (isAdmin() && isVerificationUpdate())
+          || isSuperAdmin()
+        );
+      allow delete: if isSuperAdmin();
+    }
+
+    match /activity_logs/{logId} {
+      allow read: if isAdmin();
+      allow create: if signedIn() && validActivityLogCreate();
+      allow update, delete: if isSuperAdmin();
+    }
+
+    match /account_email_index/{emailId} {
+      allow get: if true;
+      allow list: if false;
+      allow create, update: if isSuperAdmin() || isOwnEmailIndexWrite();
+      allow delete: if isSuperAdmin();
+    }
+
+    match /barangays/{barangayId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /responders/{responderId} {
+      allow read: if signedIn();
+      allow write: if isBfp();
+    }
+
+    match /fire_trucks/{truckId} {
+      allow read: if signedIn();
+      allow write: if isBfp();
+    }
+
+    match /incidents/{incidentId} {
+      allow create: if isOwnIncidentCreate();
+      allow read: if signedIn();
+      allow update: if isBarangay() && keepsIncidentOwnership();
+      allow delete: if isAdmin();
+    }
+
+    match /announcements/{announcementId} {
+      allow read: if true;
+      allow write: if isBarangay();
+    }
+
+    match /notifications/{notificationId} {
+      allow read, update: if signedIn() && resource.data.uid == request.auth.uid;
+      allow create: if isBarangay();
+      allow delete: if isAdmin();
+    }
+
+    match /settings/{settingId} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+  }
+}
