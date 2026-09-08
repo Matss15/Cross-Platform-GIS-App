@@ -5,6 +5,7 @@ import 'dart:math' as math;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_facebook_auth/flutter_facebook_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -16,6 +17,7 @@ import 'package:google_sign_in/google_sign_in.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'config/rosario_data.dart';
+import 'firebase_options.dart';
 
 part 'app/bfp_gis_app.dart';
 part 'app/theme/app_colors.dart';
@@ -30,6 +32,7 @@ part 'core/utils/field_parsers.dart';
 part 'core/services/activity_log_service.dart';
 part 'core/services/account_email_index_service.dart';
 part 'core/services/emergency_call_service.dart';
+part 'core/services/push_notification_service.dart';
 part 'core/models/dashboard_counts.dart';
 part 'core/models/map_point.dart';
 part 'core/models/incident_risk.dart';

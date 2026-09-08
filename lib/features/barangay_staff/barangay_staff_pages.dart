@@ -110,12 +110,19 @@ class VerificationQueue extends StatelessWidget {
     final user = appAuth.currentUser;
     if (user == null) return;
 
-    await appDb.collection('incidents').doc(incident.id).update({
+    final incidentRef = appDb.collection('incidents').doc(incident.id);
+    await incidentRef.update({
       'status': 'Verified',
       'verifiedBy': user.uid,
       'verifiedAt': FieldValue.serverTimestamp(),
       'updatedAt': FieldValue.serverTimestamp(),
     });
+
+    final incidentSnapshot = await incidentRef.get();
+    await notifyBfpOfVerifiedIncident(
+      incidentId: incident.id,
+      incident: incidentSnapshot.data() ?? <String, dynamic>{},
+    );
 
     await writeActivityLog(
       action: 'Verified incident',

@@ -327,14 +327,23 @@ class _LoginPanelState extends State<_LoginPanel> {
       }
 
       final profile = await appDb.collection('users').doc(user.uid).get();
-      final role = roleFromFirestore(textField(profile.data(), 'role'));
-      if (!profile.exists || role == null) {
-        await appAuth.signOut();
-        throw FirebaseAuthException(
-          code: 'missing-profile',
-          message:
-              'Complete citizen registration before using $providerName sign-in.',
-        );
+      var role = roleFromFirestore(textField(profile.data(), 'role'));
+      final needsCitizenSetup =
+          widget.role == UserRole.citizen &&
+          (!profile.exists ||
+              (textField(profile.data(), 'phone').trim().isEmpty &&
+                  textField(profile.data(), 'address').trim().isEmpty));
+      if (!profile.exists || role == null || needsCitizenSetup) {
+        if (widget.role != UserRole.citizen) {
+          await appAuth.signOut();
+          throw FirebaseAuthException(
+            code: 'missing-profile',
+            message: 'A staff account must be provisioned by an administrator.',
+          );
+        }
+        // RoleGate owns the profile setup screen because auth state changes
+        // immediately after a social provider signs in.
+        return;
       }
       if (role != widget.role) {
         await appAuth.signOut();
@@ -535,48 +544,50 @@ class _LoginPanelState extends State<_LoginPanel> {
                 backgroundColor: widget.role.accent,
               ),
             ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                const Expanded(child: Divider()),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 10),
-                  child: Text(
-                    'OR CONTINUE WITH',
-                    style: TextStyle(
-                      color: AppColors.muted,
-                      fontSize: 10,
-                      fontWeight: FontWeight.w800,
+            if (widget.role == UserRole.citizen) ...[
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  const Expanded(child: Divider()),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                    child: Text(
+                      'OR CONTINUE WITH',
+                      style: TextStyle(
+                        color: AppColors.muted,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w800,
+                      ),
                     ),
                   ),
-                ),
-                const Expanded(child: Divider()),
-              ],
-            ),
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: _isLoading
-                        ? null
-                        : () => _submitSocial(signInWithGoogle, 'Google'),
-                    icon: const Icon(Icons.g_mobiledata_rounded),
-                    label: const Text('Google'),
+                  const Expanded(child: Divider()),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: _isLoading
+                          ? null
+                          : () => _submitSocial(signInWithGoogle, 'Google'),
+                      icon: const Icon(Icons.g_mobiledata_rounded),
+                      label: const Text('Google'),
+                    ),
                   ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: _isLoading
-                        ? null
-                        : () => _submitSocial(signInWithFacebook, 'Facebook'),
-                    icon: const Icon(Icons.facebook_rounded),
-                    label: const Text('Facebook'),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: _isLoading
+                          ? null
+                          : () => _submitSocial(signInWithFacebook, 'Facebook'),
+                      icon: const Icon(Icons.facebook_rounded),
+                      label: const Text('Facebook'),
+                    ),
                   ),
-                ),
-              ],
-            ),
+                ],
+              ),
+            ],
             const SizedBox(height: 10),
             Wrap(
               spacing: 8,
@@ -626,6 +637,353 @@ class _LoginPanelState extends State<_LoginPanel> {
           ],
         ),
       ),
+    );
+  }
+}
+
+class SocialCitizenProfileDialog extends StatefulWidget {
+  const SocialCitizenProfileDialog({
+    super.key,
+    required this.user,
+    required this.existingProfile,
+  });
+
+  final User user;
+  final bool existingProfile;
+
+  @override
+  State<SocialCitizenProfileDialog> createState() =>
+      _SocialCitizenProfileDialogState();
+}
+
+class CitizenProfileSetupScaffold extends StatefulWidget {
+  const CitizenProfileSetupScaffold({
+    super.key,
+    required this.user,
+    required this.existingProfile,
+  });
+
+  final User user;
+  final bool existingProfile;
+
+  @override
+  State<CitizenProfileSetupScaffold> createState() =>
+      _CitizenProfileSetupScaffoldState();
+}
+
+class _CitizenProfileSetupScaffoldState
+    extends State<CitizenProfileSetupScaffold> {
+  bool _opened = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_opened) return;
+    _opened = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      final completed = await showDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => SocialCitizenProfileDialog(
+          user: widget.user,
+          existingProfile: widget.existingProfile,
+        ),
+      );
+      if (completed != true && mounted) await appAuth.signOut();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return const LoadingScaffold(message: 'Complete your citizen profile...');
+  }
+}
+
+class _SocialCitizenProfileDialogState
+    extends State<SocialCitizenProfileDialog> {
+  final _formKey = GlobalKey<FormState>();
+  late final TextEditingController _name;
+  final _phone = TextEditingController();
+  final _address = TextEditingController();
+  String _barangay = rosarioBarangays.first;
+  String _idType = 'Philippine National ID';
+  XFile? _idCapture;
+  bool _accepted = false;
+  bool _saving = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _name = TextEditingController(text: widget.user.displayName ?? '');
+  }
+
+  @override
+  void dispose() {
+    _name.dispose();
+    _phone.dispose();
+    _address.dispose();
+    super.dispose();
+  }
+
+  String? _required(String? value, String label) =>
+      (value ?? '').trim().isEmpty ? '$label is required.' : null;
+
+  Future<void> _captureId() async {
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.photo_camera_rounded),
+              title: const Text('Scan with camera'),
+              onTap: () => Navigator.pop(context, ImageSource.camera),
+            ),
+            ListTile(
+              leading: const Icon(Icons.upload_file_rounded),
+              title: const Text('Choose ID photo'),
+              onTap: () => Navigator.pop(context, ImageSource.gallery),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (source == null) return;
+    final capture = await ImagePicker().pickImage(
+      source: source,
+      imageQuality: 55,
+      maxWidth: 1400,
+    );
+    if (capture != null && mounted) setState(() => _idCapture = capture);
+  }
+
+  Future<void> _save() async {
+    if (!_formKey.currentState!.validate()) return;
+    if (!_accepted) {
+      setState(() => _error = 'Accept the Privacy Notice and Terms of Use.');
+      return;
+    }
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    try {
+      final name = _name.text.trim();
+      final email = (widget.user.email ?? '').toLowerCase();
+      final profileData = <String, dynamic>{
+        'fullName': name,
+        'phone': _phone.text.trim(),
+        'address': _address.text.trim(),
+        'governmentIdType': _idType,
+        'governmentIdStatus': _idCapture == null ? 'not_submitted' : 'pending',
+        'governmentIdFileName': _idCapture?.name ?? '',
+        'barangayId': barangayIdFor(_barangay),
+        'barangayName': _barangay,
+        'profileImage': widget.user.photoURL ?? '',
+        'latitude': rosarioCenter.latitude,
+        'longitude': rosarioCenter.longitude,
+        'updatedAt': FieldValue.serverTimestamp(),
+      };
+      if (!widget.existingProfile) {
+        profileData.addAll({
+          'uid': widget.user.uid,
+          'email': email,
+          'role': firestoreRoleFor(UserRole.citizen),
+          'isVerified': false,
+          'birthdate': '',
+          'emergencyContactName': '',
+          'emergencyContactPhone': '',
+          'biodata': '',
+          'createdAt': FieldValue.serverTimestamp(),
+          'policyVersion': appPolicyVersion,
+          'policyAcceptedAt': FieldValue.serverTimestamp(),
+        });
+      }
+      await appDb
+          .collection('users')
+          .doc(widget.user.uid)
+          .set(profileData, SetOptions(merge: widget.existingProfile));
+      await writeAccountEmailIndex(
+        uid: widget.user.uid,
+        email: email,
+        fullName: name,
+        role: firestoreRoleFor(UserRole.citizen),
+      );
+      if (mounted) Navigator.pop(context, true);
+    } catch (error) {
+      if (mounted) setState(() => _error = safeErrorMessage(error));
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Complete your citizen profile'),
+      content: SizedBox(
+        width: 460,
+        child: Form(
+          key: _formKey,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'One more step before you can report incidents.',
+                    style: TextStyle(color: AppColors.muted),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: _name,
+                  validator: (value) => _required(value, 'Full name'),
+                  decoration: const InputDecoration(
+                    labelText: 'Full name',
+                    prefixIcon: Icon(Icons.person_rounded),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _phone,
+                  validator: (value) => _required(value, 'Contact number'),
+                  keyboardType: TextInputType.phone,
+                  decoration: const InputDecoration(
+                    labelText: 'Contact number',
+                    prefixIcon: Icon(Icons.phone_rounded),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  initialValue: _barangay,
+                  decoration: const InputDecoration(
+                    labelText: 'Barangay',
+                    prefixIcon: Icon(Icons.location_city_rounded),
+                  ),
+                  items: rosarioBarangays
+                      .map(
+                        (item) =>
+                            DropdownMenuItem(value: item, child: Text(item)),
+                      )
+                      .toList(),
+                  onChanged: (value) =>
+                      setState(() => _barangay = value ?? _barangay),
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _address,
+                  validator: (value) => _required(value, 'Address'),
+                  decoration: const InputDecoration(
+                    labelText: 'Complete address',
+                    prefixIcon: Icon(Icons.home_rounded),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  initialValue: _idType,
+                  decoration: const InputDecoration(
+                    labelText: 'Valid government ID',
+                    prefixIcon: Icon(Icons.badge_rounded),
+                  ),
+                  items: const [
+                    DropdownMenuItem(
+                      value: 'Philippine National ID',
+                      child: Text('Philippine National ID'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'Driver License',
+                      child: Text('Driver License'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'Passport',
+                      child: Text('Passport'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'Other government ID',
+                      child: Text('Other government ID'),
+                    ),
+                  ],
+                  onChanged: (value) =>
+                      setState(() => _idType = value ?? _idType),
+                ),
+                const SizedBox(height: 8),
+                OutlinedButton.icon(
+                  onPressed: _saving ? null : _captureId,
+                  icon: const Icon(Icons.document_scanner_rounded),
+                  label: Text(
+                    _idCapture == null
+                        ? 'Scan or attach ID (optional for now)'
+                        : 'ID captured: ${_idCapture!.name}',
+                  ),
+                ),
+                CheckboxListTile(
+                  value: _accepted,
+                  contentPadding: EdgeInsets.zero,
+                  onChanged: (value) =>
+                      setState(() => _accepted = value ?? false),
+                  title: const Text(
+                    'I accept the Privacy Notice and Terms of Use.',
+                  ),
+                  controlAffinity: ListTileControlAffinity.leading,
+                ),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Wrap(
+                    spacing: 4,
+                    children: [
+                      TextButton.icon(
+                        onPressed: () => showAppPolicyDialog(
+                          context,
+                          document: PolicyDocument.privacy,
+                        ),
+                        icon: const Icon(Icons.privacy_tip_outlined, size: 17),
+                        label: const Text('Read Privacy Notice'),
+                      ),
+                      TextButton.icon(
+                        onPressed: () => showAppPolicyDialog(
+                          context,
+                          document: PolicyDocument.terms,
+                        ),
+                        icon: const Icon(Icons.gavel_rounded, size: 17),
+                        label: const Text('Read Terms of Use'),
+                      ),
+                    ],
+                  ),
+                ),
+                if (_error != null)
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      _error!,
+                      style: const TextStyle(color: AppColors.fire),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _saving ? null : () => Navigator.pop(context, false),
+          child: const Text('Cancel'),
+        ),
+        FilledButton.icon(
+          onPressed: _saving ? null : _save,
+          icon: _saving
+              ? const SizedBox.square(
+                  dimension: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.check_rounded),
+          label: Text(_saving ? 'Saving...' : 'Continue'),
+        ),
+      ],
     );
   }
 }

@@ -81,6 +81,7 @@ class CitizenVerificationPanel extends StatelessWidget {
     if (admin == null) return;
     await appDb.collection('users').doc(userId).update({
       'isVerified': true,
+      'verificationStatus': 'approved',
       'verificationMethod': 'admin_review',
       'verifiedBy': admin.uid,
       'verifiedAt': FieldValue.serverTimestamp(),
@@ -95,6 +96,29 @@ class CitizenVerificationPanel extends StatelessWidget {
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(const SnackBar(content: Text('Citizen account verified.')));
+  }
+
+  Future<void> _reject(BuildContext context, String userId, String name) async {
+    final admin = appAuth.currentUser;
+    if (admin == null) return;
+    await appDb.collection('users').doc(userId).update({
+      'isVerified': false,
+      'verificationStatus': 'rejected',
+      'verificationMethod': 'admin_review',
+      'verifiedBy': admin.uid,
+      'rejectionReason': 'Please review your submitted details and try again.',
+      'verifiedAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+    await writeActivityLog(
+      action: 'Rejected citizen account',
+      targetId: userId,
+      targetLabel: name,
+    );
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Citizen account rejected.')));
   }
 
   @override
@@ -145,12 +169,22 @@ class CitizenVerificationPanel extends StatelessWidget {
                     subtitle: Text(
                       '${textField(data, 'email', '-')} | '
                       '${textField(data, 'barangayName', '-')}\n'
-                      'ID/selfie review required before approval.',
+                      '${textField(data, 'governmentIdType', 'Government ID')} | '
+                      '${textField(data, 'governmentIdStatus', 'not submitted')}',
                     ),
                     isThreeLine: true,
-                    trailing: FilledButton(
-                      onPressed: () => _verify(context, doc.id, name),
-                      child: const Text('Approve'),
+                    trailing: Wrap(
+                      spacing: 8,
+                      children: [
+                        OutlinedButton(
+                          onPressed: () => _reject(context, doc.id, name),
+                          child: const Text('Reject'),
+                        ),
+                        FilledButton(
+                          onPressed: () => _verify(context, doc.id, name),
+                          child: const Text('Approve'),
+                        ),
+                      ],
                     ),
                   );
                 }).toList(),

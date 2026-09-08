@@ -49,6 +49,9 @@ service cloud.firestore {
           'email',
           'phone',
           'address',
+          'governmentIdType',
+          'governmentIdStatus',
+          'governmentIdFileName',
           'role',
           'barangayId',
           'barangayName',
@@ -90,15 +93,22 @@ service cloud.firestore {
     function isVerificationUpdate() {
       return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'isVerified',
+          'verificationStatus',
           'verificationMethod',
           'verifiedBy',
           'verifiedAt',
+          'rejectionReason',
           'updatedAt',
         ])
-        && request.resource.data.isVerified == true
         && request.resource.data.verificationMethod == 'admin_review'
         && request.resource.data.verifiedBy == request.auth.uid
-        && request.resource.data.verifiedAt == request.time;
+        && request.resource.data.verifiedAt == request.time
+        && (
+          (request.resource.data.isVerified == true
+            && request.resource.data.verificationStatus == 'approved')
+          || (request.resource.data.isVerified == false
+            && request.resource.data.verificationStatus == 'rejected')
+        );
     }
 
     function isOwnEmailIndexWrite() {

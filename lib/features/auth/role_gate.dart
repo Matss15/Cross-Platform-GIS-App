@@ -69,6 +69,12 @@ class _RoleGateState extends State<RoleGate> {
             final actualRole = roleFromFirestore(textField(data, 'role'));
 
             if (data == null || actualRole == null) {
+              if (widget.role == UserRole.citizen) {
+                return CitizenProfileSetupScaffold(
+                  user: user,
+                  existingProfile: snapshot.data?.exists ?? false,
+                );
+              }
               return MissingProfileScaffold(onSignOut: _userSignOut);
             }
 
@@ -82,7 +88,11 @@ class _RoleGateState extends State<RoleGate> {
 
             return SessionGuard(
               onTimeout: () => _signOut(timedOut: true),
-              child: AppShell(role: actualRole, onSignOut: _userSignOut),
+              child: AppShell(
+                role: actualRole,
+                isVerified: data['isVerified'] == true,
+                onSignOut: _userSignOut,
+              ),
             );
           },
         );

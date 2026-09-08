@@ -8,32 +8,11 @@ class CitizenDashboard extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        DashboardCountsBuilder(
-          builder: (context, counts) => ResponsiveGrid(
-            children: [
-              MetricTile(
-                title: 'Barangays covered',
-                value: counts.barangays.toString(),
-                helper: 'Rosario barangay records',
-                icon: Icons.location_city_rounded,
-                color: AppColors.fire,
-              ),
-              MetricTile(
-                title: 'Active incidents',
-                value: (counts.pending + counts.verified + counts.critical)
-                    .toString(),
-                helper: '${counts.critical} critical report(s)',
-                icon: Icons.warning_rounded,
-                color: AppColors.amber,
-              ),
-              MetricTile(
-                title: 'Reports today',
-                value: counts.today.toString(),
-                helper: 'Submitted from the app',
-                icon: Icons.receipt_long_rounded,
-                color: AppColors.success,
-              ),
-            ],
+        const Panel(
+          child: SectionTitle(
+            title: 'Welcome to BFP Rosario GIS',
+            subtitle:
+                'Report emergencies with your location and help responders act quickly.',
           ),
         ),
         const SizedBox(height: 18),

@@ -8,6 +8,272 @@ class AppDestination {
   final IconData icon;
 }
 
+class BfpEmergencyAlertListener extends StatefulWidget {
+  const BfpEmergencyAlertListener({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  State<BfpEmergencyAlertListener> createState() =>
+      _BfpEmergencyAlertListenerState();
+}
+
+/// Spark-compatible alert path for newly submitted incident reports.
+///
+/// This deliberately listens to Firestore while the workspace is open. It
+/// does not depend on Cloud Functions or Firebase Storage, so it remains
+/// usable on the Spark plan. Background delivery when the app is closed still
+/// requires a server-side push provider.
+class SparkIncidentAlertListener extends StatefulWidget {
+  const SparkIncidentAlertListener({
+    super.key,
+    required this.role,
+    required this.child,
+  });
+
+  final UserRole role;
+  final Widget child;
+
+  @override
+  State<SparkIncidentAlertListener> createState() =>
+      _SparkIncidentAlertListenerState();
+}
+
+class _SparkIncidentAlertListenerState
+    extends State<SparkIncidentAlertListener> {
+  final Set<String> _knownIncidentIds = {};
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _subscription;
+  Timer? _alarmTimer;
+  bool _initialized = false;
+  bool _showingAlert = false;
+
+  bool get _isEmergencyWorkspace =>
+      widget.role == UserRole.bfp || widget.role == UserRole.admin;
+
+  @override
+  void initState() {
+    super.initState();
+    if (!_isEmergencyWorkspace) return;
+
+    _subscription = appDb
+        .collection('incidents')
+        .where('status', isEqualTo: 'Pending')
+        .snapshots()
+        .listen(_onIncidentsChanged);
+  }
+
+  void _onIncidentsChanged(QuerySnapshot<Map<String, dynamic>> snapshot) {
+    if (!_initialized) {
+      _knownIncidentIds.addAll(snapshot.docs.map((doc) => doc.id));
+      _initialized = true;
+      return;
+    }
+
+    final newReport = snapshot.docs
+        .cast<QueryDocumentSnapshot<Map<String, dynamic>>?>()
+        .firstWhere(
+          (doc) => doc != null && !_knownIncidentIds.contains(doc.id),
+          orElse: () => null,
+        );
+    _knownIncidentIds.addAll(snapshot.docs.map((doc) => doc.id));
+
+    if (newReport != null && mounted && !_showingAlert) {
+      unawaited(_showIncidentAlert(newReport));
+    }
+  }
+
+  Future<void> _showIncidentAlert(
+    QueryDocumentSnapshot<Map<String, dynamic>> incident,
+  ) async {
+    _showingAlert = true;
+    if (widget.role == UserRole.bfp) _startAlarm();
+
+    final data = incident.data();
+    final priority = textField(data, 'priority', 'High');
+    try {
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => AlertDialog(
+          icon: Icon(
+            widget.role == UserRole.bfp
+                ? Icons.notification_important_rounded
+                : Icons.warning_rounded,
+            color: AppColors.fire,
+            size: 42,
+          ),
+          title: const Text('New incident report'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              StatusPill(
+                label: '$priority priority',
+                icon: Icons.priority_high_rounded,
+                color: AppColors.fire,
+              ),
+              const SizedBox(height: 14),
+              Text(
+                '${textField(data, 'type', 'Incident')} at '
+                '${textField(data, 'barangayName', 'Rosario')}',
+              ),
+              const SizedBox(height: 6),
+              Text(textField(data, 'address', 'Location unavailable')),
+            ],
+          ),
+          actions: [
+            FilledButton.icon(
+              onPressed: () => Navigator.pop(context),
+              icon: const Icon(Icons.visibility_rounded),
+              label: Text(
+                widget.role == UserRole.bfp ? 'Acknowledge' : 'Review report',
+              ),
+            ),
+          ],
+        ),
+      );
+    } finally {
+      _stopAlarm();
+      _showingAlert = false;
+    }
+  }
+
+  void _startAlarm() {
+    _playAlarmPulse();
+    _alarmTimer = Timer.periodic(
+      const Duration(seconds: 2),
+      (_) => _playAlarmPulse(),
+    );
+  }
+
+  void _playAlarmPulse() {
+    unawaited(SystemSound.play(SystemSoundType.alert));
+    HapticFeedback.heavyImpact();
+  }
+
+  void _stopAlarm() {
+    _alarmTimer?.cancel();
+    _alarmTimer = null;
+  }
+
+  @override
+  void dispose() {
+    _stopAlarm();
+    _subscription?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
+}
+
+class _BfpEmergencyAlertListenerState extends State<BfpEmergencyAlertListener> {
+  final Set<String> _knownAlertIds = {};
+  bool _initialized = false;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _subscription;
+
+  @override
+  void initState() {
+    super.initState();
+    final uid = appAuth.currentUser?.uid;
+    if (uid == null) return;
+
+    _subscription = appDb
+        .collection('notifications')
+        .where('uid', isEqualTo: uid)
+        .where('read', isEqualTo: false)
+        .snapshots()
+        .listen(_onAlertsChanged);
+  }
+
+  void _onAlertsChanged(QuerySnapshot<Map<String, dynamic>> snapshot) {
+    final emergencyDocs = snapshot.docs
+        .where((doc) => textField(doc.data(), 'type') == 'emergency')
+        .toList();
+
+    if (!_initialized) {
+      _knownAlertIds.addAll(emergencyDocs.map((doc) => doc.id));
+      _initialized = true;
+      return;
+    }
+
+    QueryDocumentSnapshot<Map<String, dynamic>>? newAlert;
+    for (final doc in emergencyDocs) {
+      if (!_knownAlertIds.contains(doc.id)) {
+        newAlert = doc;
+        break;
+      }
+    }
+    _knownAlertIds.addAll(emergencyDocs.map((doc) => doc.id));
+    if (newAlert != null && mounted) {
+      unawaited(_showEmergencyAlert(newAlert));
+    }
+  }
+
+  Future<void> _showEmergencyAlert(
+    QueryDocumentSnapshot<Map<String, dynamic>> alert,
+  ) async {
+    await SystemSound.play(SystemSoundType.alert);
+    HapticFeedback.heavyImpact();
+    if (!mounted) return;
+
+    final data = alert.data();
+    final priority = textField(data, 'priority', 'Medium');
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        icon: const Icon(
+          Icons.warning_rounded,
+          color: AppColors.fire,
+          size: 42,
+        ),
+        title: Text(textField(data, 'title', 'Emergency alert')),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            StatusPill(
+              label: '$priority priority',
+              icon: Icons.priority_high_rounded,
+              color: AppColors.fire,
+            ),
+            const SizedBox(height: 14),
+            Text(
+              textField(data, 'body', 'Review the incident in the GIS map.'),
+            ),
+          ],
+        ),
+        actions: [
+          FilledButton.icon(
+            onPressed: () async {
+              await appDb.collection('notifications').doc(alert.id).update({
+                'read': true,
+                'acknowledged': true,
+                'acknowledgedBy': appAuth.currentUser?.uid,
+                'acknowledgedAt': FieldValue.serverTimestamp(),
+              });
+              if (context.mounted) Navigator.pop(context);
+            },
+            icon: const Icon(Icons.check_circle_outline_rounded),
+            label: const Text('Acknowledge alert'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _subscription?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
+}
+
 List<AppDestination> destinationsFor(UserRole role) {
   switch (role) {
     case UserRole.citizen:
@@ -47,10 +313,16 @@ List<AppDestination> destinationsFor(UserRole role) {
 }
 
 class AppShell extends StatefulWidget {
-  const AppShell({super.key, required this.role, required this.onSignOut});
+  const AppShell({
+    super.key,
+    required this.role,
+    required this.onSignOut,
+    this.isVerified = true,
+  });
 
   final UserRole role;
   final VoidCallback onSignOut;
+  final bool isVerified;
 
   @override
   State<AppShell> createState() => _AppShellState();
@@ -64,7 +336,7 @@ class _AppShellState extends State<AppShell> {
     final destinations = destinationsFor(widget.role);
     final destination = destinations[_index];
 
-    return LayoutBuilder(
+    final shell = LayoutBuilder(
       builder: (context, constraints) {
         final wide = constraints.maxWidth >= 980;
         final useDrawer =
@@ -157,14 +429,27 @@ class _AppShellState extends State<AppShell> {
         );
       },
     );
+
+    final withIncidentAlerts = _isAlertWorkspace(widget.role)
+        ? SparkIncidentAlertListener(role: widget.role, child: shell)
+        : shell;
+
+    return widget.role == UserRole.bfp
+        ? BfpEmergencyAlertListener(child: withIncidentAlerts)
+        : withIncidentAlerts;
   }
+
+  bool _isAlertWorkspace(UserRole role) =>
+      role == UserRole.bfp || role == UserRole.admin;
 
   Widget pageFor(String key, UserRole role) {
     switch (key) {
       case 'home':
         return RoleDashboard(role: role);
       case 'report':
-        return IncidentReportPage(role: role);
+        return role == UserRole.citizen && !widget.isVerified
+            ? const VerificationRequiredPage()
+            : IncidentReportPage(role: role);
       case 'map':
         return IncidentMapPage(role: role);
       case 'reports':
@@ -290,7 +575,7 @@ class SideNav extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 218,
+      width: 248,
       padding: const EdgeInsets.fromLTRB(18, 24, 18, 18),
       decoration: const BoxDecoration(
         color: AppColors.panel,
@@ -378,9 +663,9 @@ class _NavTile extends StatelessWidget {
   Widget build(BuildContext context) {
     return Material(
       color: selected ? accent.withValues(alpha: 0.16) : Colors.transparent,
-      borderRadius: BorderRadius.circular(8),
+      borderRadius: BorderRadius.circular(12),
       child: InkWell(
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(12),
         onTap: onTap,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),

@@ -27,8 +27,13 @@ class _AppBootstrapState extends State<AppBootstrap> {
 
   Future<FirebaseApp> _initializeFirebase() {
     return Firebase.initializeApp(
-      options: DefaultFirebaseOptions.currentPlatform,
-    ).timeout(const Duration(seconds: 30));
+          options: DefaultFirebaseOptions.currentPlatform,
+        )
+        .then((app) async {
+          await PushNotificationService.initialize();
+          return app;
+        })
+        .timeout(const Duration(seconds: 30));
   }
 
   void _retryInitialization() {
