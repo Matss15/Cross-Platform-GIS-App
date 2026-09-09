@@ -142,7 +142,7 @@ class _LoginHero extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 28),
-        MapPreview(accent: role.accent, height: 270),
+        MapPreview(accent: role.accent, height: 270, ownOnly: true),
       ],
     );
   }
@@ -762,6 +762,13 @@ class _SocialCitizenProfileDialogState
 
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
+    if (_idCapture == null) {
+      setState(() {
+        _error =
+            'Invalid ID: hindi maaaring mag-continue. Mag-upload ng malinaw at valid na government ID.';
+      });
+      return;
+    }
     if (!_accepted) {
       setState(() => _error = 'Accept the Privacy Notice and Terms of Use.');
       return;
@@ -903,10 +910,6 @@ class _SocialCitizenProfileDialogState
                       value: 'Passport',
                       child: Text('Passport'),
                     ),
-                    DropdownMenuItem(
-                      value: 'Other government ID',
-                      child: Text('Other government ID'),
-                    ),
                   ],
                   onChanged: (value) =>
                       setState(() => _idType = value ?? _idType),
@@ -917,10 +920,12 @@ class _SocialCitizenProfileDialogState
                   icon: const Icon(Icons.document_scanner_rounded),
                   label: Text(
                     _idCapture == null
-                        ? 'Scan or attach ID (optional for now)'
+                        ? 'Scan or attach valid ID (required)'
                         : 'ID captured: ${_idCapture!.name}',
                   ),
                 ),
+                const SizedBox(height: 8),
+                const _GovernmentIdNotice(),
                 CheckboxListTile(
                   value: _accepted,
                   contentPadding: EdgeInsets.zero,
@@ -984,6 +989,27 @@ class _SocialCitizenProfileDialogState
           label: Text(_saving ? 'Saving...' : 'Continue'),
         ),
       ],
+    );
+  }
+}
+
+class _GovernmentIdNotice extends StatelessWidget {
+  const _GovernmentIdNotice();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.amber.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppColors.amber.withValues(alpha: 0.45)),
+      ),
+      child: const Text(
+        'NOTICE: Hindi tatanggapin ang expired, peke, edited, screenshot, malabo, o non-government ID. Gumamit lamang ng malinaw at valid na government-issued ID. Maaaring ma-reject ang registration pagkatapos ng verification.',
+        style: TextStyle(color: AppColors.amber, fontSize: 12, height: 1.35),
+      ),
     );
   }
 }

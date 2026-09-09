@@ -130,10 +130,16 @@ class DashboardChart extends StatelessWidget {
 }
 
 class DonutChart extends StatelessWidget {
-  const DonutChart({super.key, required this.entries, required this.total});
+  const DonutChart({
+    super.key,
+    required this.entries,
+    required this.total,
+    this.dimension = 170,
+  });
 
   final List<MapEntry<String, int>> entries;
   final int total;
+  final double dimension;
 
   @override
   Widget build(BuildContext context) {
@@ -148,7 +154,7 @@ class DonutChart extends StatelessWidget {
     return CustomPaint(
       painter: DonutPainter(entries: entries, total: total),
       child: SizedBox.square(
-        dimension: 170,
+        dimension: dimension,
         child: Center(
           child: Text(
             '$total\nreports',
@@ -197,10 +203,16 @@ class DonutPainter extends CustomPainter {
 }
 
 class MapPreview extends StatefulWidget {
-  const MapPreview({super.key, required this.accent, this.height = 320});
+  const MapPreview({
+    super.key,
+    required this.accent,
+    this.height = 320,
+    this.ownOnly = false,
+  });
 
   final Color accent;
   final double height;
+  final bool ownOnly;
 
   @override
   State<MapPreview> createState() => _MapPreviewState();
@@ -292,7 +304,17 @@ class _MapPreviewState extends State<MapPreview> {
                       ],
                     ),
                     StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                      stream: appDb.collection('incidents').snapshots(),
+                      stream:
+                          (widget.ownOnly
+                                  ? appDb
+                                        .collection('incidents')
+                                        .where(
+                                          'uid',
+                                          isEqualTo:
+                                              appAuth.currentUser?.uid ?? '',
+                                        )
+                                  : appDb.collection('incidents'))
+                              .snapshots(),
                       builder: (context, snapshot) {
                         final incidentPoints =
                             snapshot.data?.docs

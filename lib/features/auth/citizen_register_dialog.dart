@@ -17,6 +17,8 @@ class _CitizenRegisterDialogState extends State<CitizenRegisterDialog> {
   final _confirmPasswordController = TextEditingController();
 
   String _selectedBarangay = rosarioBarangays.first;
+  String _idType = 'Philippine National ID';
+  XFile? _idCapture;
   bool _isCreating = false;
   bool _obscurePassword = true;
   bool _acceptedPolicies = false;
@@ -53,6 +55,42 @@ class _CitizenRegisterDialogState extends State<CitizenRegisterDialog> {
     return null;
   }
 
+  Future<void> _captureId() async {
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.photo_camera_rounded),
+              title: const Text('Take a photo of valid ID'),
+              onTap: () => Navigator.pop(context, ImageSource.camera),
+            ),
+            ListTile(
+              leading: const Icon(Icons.upload_file_rounded),
+              title: const Text('Upload ID photo'),
+              onTap: () => Navigator.pop(context, ImageSource.gallery),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (source == null) return;
+    final capture = await ImagePicker().pickImage(
+      source: source,
+      imageQuality: 55,
+      maxWidth: 1400,
+    );
+    if (capture == null) return;
+    final bytes = await capture.readAsBytes();
+    if (bytes.length > 450 * 1024) {
+      if (mounted) setState(() => _message = 'ID image must be under 450 KB.');
+      return;
+    }
+    if (mounted) setState(() => _idCapture = capture);
+  }
+
   Future<void> _register() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -67,6 +105,13 @@ class _CitizenRegisterDialogState extends State<CitizenRegisterDialog> {
       });
       return;
     }
+    if (_idCapture == null) {
+      setState(
+        () => _message =
+            'Invalid ID: upload a valid government-issued ID to continue.',
+      );
+      return;
+    }
 
     setState(() {
       _isCreating = true;
@@ -78,6 +123,7 @@ class _CitizenRegisterDialogState extends State<CitizenRegisterDialog> {
     try {
       final fullName = _nameController.text.trim();
       final email = _emailController.text.trim().toLowerCase();
+      final idBytes = await _idCapture!.readAsBytes();
       final roleName = firestoreRoleFor(UserRole.citizen);
       final credential = await appAuth.createUserWithEmailAndPassword(
         email: email,
@@ -115,6 +161,11 @@ class _CitizenRegisterDialogState extends State<CitizenRegisterDialog> {
         'policyAcceptedAt': FieldValue.serverTimestamp(),
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
+        'governmentIdType': _idType,
+        'governmentIdStatus': 'pending',
+        'governmentIdFileName': _idCapture!.name,
+        'governmentIdImage': 'data:image/jpeg;base64,${base64Encode(idBytes)}',
+        'governmentIdAiReview': {'status': 'pending'},
       });
 
       await writeAccountEmailIndex(
@@ -240,6 +291,47 @@ class _CitizenRegisterDialogState extends State<CitizenRegisterDialog> {
                     prefixIcon: Icon(Icons.home_rounded),
                   ),
                 ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  initialValue: _idType,
+                  decoration: const InputDecoration(
+                    labelText: 'Valid government-issued ID',
+                    prefixIcon: Icon(Icons.badge_rounded),
+                  ),
+                  items: const [
+                    DropdownMenuItem(
+                      value: 'Philippine National ID',
+                      child: Text('Philippine National ID'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'Driver License',
+                      child: Text('Driver License'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'Passport',
+                      child: Text('Passport'),
+                    ),
+                    DropdownMenuItem(value: 'UMID', child: Text('UMID')),
+                    DropdownMenuItem(
+                      value: 'PhilHealth ID',
+                      child: Text('PhilHealth ID'),
+                    ),
+                  ],
+                  onChanged: (value) =>
+                      setState(() => _idType = value ?? _idType),
+                ),
+                const SizedBox(height: 8),
+                OutlinedButton.icon(
+                  onPressed: _isCreating ? null : _captureId,
+                  icon: const Icon(Icons.document_scanner_rounded),
+                  label: Text(
+                    _idCapture == null
+                        ? 'Upload valid ID (required)'
+                        : 'ID attached: ${_idCapture!.name}',
+                  ),
+                ),
+                const SizedBox(height: 8),
+                const _GovernmentIdNotice(),
                 const SizedBox(height: 12),
                 TextFormField(
                   controller: _passwordController,

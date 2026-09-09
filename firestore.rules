@@ -36,6 +36,10 @@ service cloud.firestore {
       return role() == 'barangay' || isBfp();
     }
 
+    function isCitizen() {
+      return role() == 'resident';
+    }
+
     function managedAccountRole() {
       return request.resource.data.role in ['resident', 'barangay', 'bfp'];
     }
@@ -52,6 +56,8 @@ service cloud.firestore {
           'governmentIdType',
           'governmentIdStatus',
           'governmentIdFileName',
+          'governmentIdImage',
+          'governmentIdAiReview',
           'role',
           'barangayId',
           'barangayName',
@@ -72,6 +78,17 @@ service cloud.firestore {
         && request.resource.data.email == request.auth.token.email
         && request.resource.data.role == 'resident'
         && request.resource.data.isVerified == false
+        && request.resource.data.governmentIdType in [
+          'Philippine National ID', 'Driver License', 'Passport', 'UMID',
+          'PhilHealth ID'
+        ]
+        && request.resource.data.governmentIdStatus == 'pending'
+        && request.resource.data.governmentIdImage is string
+        && request.resource.data.governmentIdImage.size() > 0
+        && request.resource.data.governmentIdImage.size() <= 700000
+        && request.resource.data.governmentIdAiReview is map
+        && request.resource.data.governmentIdAiReview.status == 'pending'
+        && request.resource.data.governmentIdAiReview.keys().hasOnly(['status'])
         && request.resource.data.policyVersion == '2026-07-20'
         && request.resource.data.policyAcceptedAt == request.time;
     }
@@ -101,6 +118,8 @@ service cloud.firestore {
           'updatedAt',
         ])
         && request.resource.data.verificationMethod == 'admin_review'
+        && resource.data.role == 'resident'
+        && request.resource.data.role == 'resident'
         && request.resource.data.verifiedBy == request.auth.uid
         && request.resource.data.verifiedAt == request.time
         && (
@@ -142,10 +161,40 @@ service cloud.firestore {
         && request.resource.data.createdAt == request.time;
     }
 
-    function isOwnIncidentCreate() {
+    function isOwnIncidentCreate(incidentId) {
       return signedIn()
+        && request.resource.data.keys().hasOnly([
+          'id', 'uid', 'reporterId', 'reporterName', 'phone', 'address',
+          'description', 'latitude', 'longitude', 'barangayId', 'barangayName',
+          'type', 'priority', 'status', 'assignedTo', 'assignedResponder',
+          'verifiedBy', 'evidenceImage', 'evidenceFileName', 'hasEvidence',
+          'evidenceUploadedAt', 'createdAt', 'updatedAt'
+        ])
+        && request.resource.data.id == incidentId
         && request.resource.data.uid == request.auth.uid
         && request.resource.data.reporterId == request.auth.uid
+        && request.resource.data.reporterName is string
+        && request.resource.data.reporterName.size() <= 120
+        && request.resource.data.phone is string
+        && request.resource.data.phone.size() <= 40
+        && request.resource.data.address is string
+        && request.resource.data.address.size() > 0
+        && request.resource.data.address.size() <= 300
+        && request.resource.data.description is string
+        && request.resource.data.description.size() > 0
+        && request.resource.data.description.size() <= 2000
+        && request.resource.data.type is string
+        && request.resource.data.type.size() > 0
+        && request.resource.data.type.size() <= 80
+        && request.resource.data.priority in ['Low', 'Medium', 'High', 'Critical']
+        && request.resource.data.status == 'Pending'
+        && request.resource.data.hasEvidence is bool
+        && request.resource.data.evidenceImage is string
+        && request.resource.data.evidenceImage.size() <= 700000
+        && request.resource.data.evidenceFileName is string
+        && request.resource.data.evidenceFileName.size() <= 180
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time
         && request.resource.data.latitude is number
         && request.resource.data.longitude is number
         && request.resource.data.latitude >= 13.765
@@ -162,8 +211,53 @@ service cloud.firestore {
       ]);
     }
 
+    function validIncidentUpdate() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status', 'verifiedBy', 'verifiedAt', 'updatedAt', 'assignedTo',
+          'assignedResponder', 'statusUpdatedBy', 'responseNotes', 'resolvedAt',
+          'closedAt', 'routedBy', 'routedAt'
+        ])
+        && request.resource.data.status in [
+          'Pending', 'Verified', 'Routed to BFP', 'Dispatched', 'On Scene',
+          'Contained', 'Resolved', 'Closed'
+        ];
+    }
+
+    function validNotificationCreate() {
+      return request.resource.data.keys().hasOnly([
+          'uid', 'type', 'incidentId', 'title', 'body', 'priority', 'read',
+          'acknowledged', 'createdAt'
+        ])
+        && request.resource.data.uid is string
+        && exists(/databases/$(database)/documents/users/$(request.resource.data.uid))
+        && get(/databases/$(database)/documents/users/$(request.resource.data.uid)).data.role == 'bfp'
+        && request.resource.data.type == 'emergency'
+        && request.resource.data.incidentId is string
+        && exists(/databases/$(database)/documents/incidents/$(request.resource.data.incidentId))
+        && get(/databases/$(database)/documents/incidents/$(request.resource.data.incidentId)).data.status == 'Verified'
+        && request.resource.data.title is string
+        && request.resource.data.title.size() <= 160
+        && request.resource.data.body is string
+        && request.resource.data.body.size() <= 500
+        && request.resource.data.priority in ['Low', 'Medium', 'High', 'Critical']
+        && request.resource.data.read == false
+        && request.resource.data.acknowledged == false
+        && request.resource.data.createdAt == request.time;
+    }
+
+    function validNotificationUpdate() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'read', 'acknowledged', 'acknowledgedBy', 'acknowledgedAt'
+        ])
+        && request.resource.data.uid == resource.data.uid
+        && request.resource.data.read == true
+        && request.resource.data.acknowledged == true
+        && request.resource.data.acknowledgedBy == request.auth.uid
+        && request.resource.data.acknowledgedAt == request.time;
+    }
+
     match /users/{userId} {
-      allow read: if signedIn() && (request.auth.uid == userId || isBarangay());
+      allow read: if signedIn() && (request.auth.uid == userId || isBfp());
       allow create: if signedIn()
         && (
           (
@@ -211,9 +305,9 @@ service cloud.firestore {
     }
 
     match /incidents/{incidentId} {
-      allow create: if isOwnIncidentCreate();
-      allow read: if signedIn();
-      allow update: if isBarangay() && keepsIncidentOwnership();
+      allow create: if isOwnIncidentCreate(incidentId);
+      allow read: if isBarangay() || (isCitizen() && resource.data.uid == request.auth.uid);
+      allow update: if isBarangay() && keepsIncidentOwnership() && validIncidentUpdate();
       allow delete: if isAdmin();
     }
 
@@ -223,8 +317,9 @@ service cloud.firestore {
     }
 
     match /notifications/{notificationId} {
-      allow read, update: if signedIn() && resource.data.uid == request.auth.uid;
-      allow create: if isBarangay();
+      allow read: if signedIn() && resource.data.uid == request.auth.uid;
+      allow update: if signedIn() && resource.data.uid == request.auth.uid && validNotificationUpdate();
+      allow create: if isBarangay() && validNotificationCreate();
       allow delete: if isAdmin();
     }
 

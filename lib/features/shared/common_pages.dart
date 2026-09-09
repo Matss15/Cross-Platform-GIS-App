@@ -40,8 +40,15 @@ class IncidentMapPage extends StatelessWidget {
         LayoutSwitcher(
           leftFlex: 7,
           rightFlex: 4,
-          left: MapPreview(accent: role.accent, height: 510),
-          right: const IncidentFeed(title: 'Map incident list'),
+          left: MapPreview(
+            accent: role.accent,
+            height: 510,
+            ownOnly: role == UserRole.citizen,
+          ),
+          right: IncidentFeed(
+            title: 'Map incident list',
+            ownOnly: role == UserRole.citizen,
+          ),
         ),
       ],
     );
@@ -387,7 +394,7 @@ class ProfilePage extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 14),
-              const IncidentFeed(title: 'My recent activity'),
+              const IncidentFeed(title: 'My recent activity', ownOnly: true),
             ],
           ),
         );
@@ -841,9 +848,10 @@ class EvidencePanel extends StatelessWidget {
 }
 
 class IncidentFeed extends StatelessWidget {
-  const IncidentFeed({super.key, required this.title});
+  const IncidentFeed({super.key, required this.title, this.ownOnly = false});
 
   final String title;
+  final bool ownOnly;
 
   @override
   Widget build(BuildContext context) {
@@ -857,11 +865,19 @@ class IncidentFeed extends StatelessWidget {
           ),
           const SizedBox(height: 14),
           StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-            stream: appDb
-                .collection('incidents')
-                .orderBy('createdAt', descending: true)
-                .limit(12)
-                .snapshots(),
+            stream:
+                (ownOnly
+                        ? appDb
+                              .collection('incidents')
+                              .where(
+                                'uid',
+                                isEqualTo: appAuth.currentUser?.uid ?? '',
+                              )
+                        : appDb
+                              .collection('incidents')
+                              .orderBy('createdAt', descending: true)
+                              .limit(12))
+                    .snapshots(),
             builder: (context, snapshot) {
               if (snapshot.connectionState == ConnectionState.waiting) {
                 return const Center(child: CircularProgressIndicator());

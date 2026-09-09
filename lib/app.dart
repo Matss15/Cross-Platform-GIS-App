@@ -14,6 +14,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
 
 import 'config/rosario_data.dart';

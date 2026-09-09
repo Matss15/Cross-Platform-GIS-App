@@ -10,11 +10,13 @@ class CitizenDashboard extends StatelessWidget {
       children: [
         const Panel(
           child: SectionTitle(
-            title: 'Welcome to BFP Rosario GIS',
+            title: 'Citizen Emergency Dashboard',
             subtitle:
                 'Report emergencies with your location and help responders act quickly.',
           ),
         ),
+        const SizedBox(height: 18),
+        const CitizenStatusSummary(),
         const SizedBox(height: 18),
         LayoutSwitcher(
           left: Panel(
@@ -50,13 +52,80 @@ class CitizenDashboard extends StatelessWidget {
           ),
           right: Column(
             children: [
-              MapPreview(accent: AppColors.fire, height: 310),
+              MapPreview(accent: AppColors.fire, height: 380, ownOnly: true),
               const SizedBox(height: 14),
-              const IncidentFeed(title: 'Latest public alerts'),
+              const IncidentFeed(title: 'My incident reports', ownOnly: true),
             ],
           ),
         ),
       ],
+    );
+  }
+}
+
+class CitizenStatusSummary extends StatelessWidget {
+  const CitizenStatusSummary({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final uid = appAuth.currentUser?.uid;
+    if (uid == null) return const SizedBox.shrink();
+
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: appDb
+          .collection('incidents')
+          .where('uid', isEqualTo: uid)
+          .snapshots(),
+      builder: (context, snapshot) {
+        final docs = snapshot.data?.docs ?? const [];
+        var pending = 0;
+        var verified = 0;
+        var resolved = 0;
+        for (final doc in docs) {
+          final status = textField(doc.data(), 'status').toLowerCase();
+          if (status == 'pending') pending++;
+          if (status == 'verified') verified++;
+          if (status == 'resolved' ||
+              status == 'contained' ||
+              status == 'closed') {
+            resolved++;
+          }
+        }
+
+        return ResponsiveGrid(
+          minTileWidth: 190,
+          children: [
+            MetricTile(
+              title: 'My reports',
+              value: docs.length.toString(),
+              helper: 'Submitted incidents',
+              icon: Icons.receipt_long_rounded,
+              color: AppColors.fire,
+            ),
+            MetricTile(
+              title: 'Pending review',
+              value: pending.toString(),
+              helper: 'Awaiting validation',
+              icon: Icons.hourglass_top_rounded,
+              color: AppColors.amber,
+            ),
+            MetricTile(
+              title: 'Verified reports',
+              value: verified.toString(),
+              helper: 'Confirmed by responders',
+              icon: Icons.verified_rounded,
+              color: AppColors.blue,
+            ),
+            MetricTile(
+              title: 'Resolved',
+              value: resolved.toString(),
+              helper: 'Closed incidents',
+              icon: Icons.task_alt_rounded,
+              color: AppColors.success,
+            ),
+          ],
+        );
+      },
     );
   }
 }
@@ -82,6 +151,7 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
   String? _evidenceDataUrl;
   String? _evidenceName;
   bool _isSubmitting = false;
+  bool _isResolvingBarangay = false;
   String? _errorText;
 
   @override
@@ -158,6 +228,47 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
     });
   }
 
+  Future<void> _resolveBarangayFromPin(LatLng point) async {
+    setState(() => _isResolvingBarangay = true);
+    try {
+      final uri = Uri.https('nominatim.openstreetmap.org', '/reverse', {
+        'format': 'jsonv2',
+        'lat': point.latitude.toStringAsFixed(6),
+        'lon': point.longitude.toStringAsFixed(6),
+        'zoom': '18',
+        'addressdetails': '1',
+      });
+      final response = await http.get(
+        uri,
+        headers: const {'User-Agent': 'BFP-Rosario-GIS/1.0'},
+      );
+      if (response.statusCode != 200) return;
+
+      final payload = jsonDecode(response.body);
+      final address = payload is Map<String, dynamic>
+          ? payload['address']
+          : null;
+      if (address is! Map) return;
+
+      final candidates = [
+        address['village'],
+        address['suburb'],
+        address['neighbourhood'],
+        address['town'],
+      ].whereType<String>().map((value) => value.trim().toLowerCase());
+      final match = rosarioBarangays.firstWhere(
+        (barangay) => candidates.contains(barangay.toLowerCase()),
+        orElse: () => '',
+      );
+      if (!mounted || match.isEmpty) return;
+      setState(() => _selectedBarangay = match);
+    } catch (_) {
+      // A temporary geocoder/network failure must not discard the selected pin.
+    } finally {
+      if (mounted) setState(() => _isResolvingBarangay = false);
+    }
+  }
+
   Future<void> _submitReport() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -165,6 +276,13 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
     if (incidentPoint == null) {
       setState(() {
         _errorText = 'Select the exact incident location on the map.';
+      });
+      return;
+    }
+    if (_selectedBarangay.isEmpty) {
+      setState(() {
+        _errorText =
+            'Hindi pa matukoy ang barangay ng pin. Ilipat nang kaunti ang pin at subukan muli.';
       });
       return;
     }
@@ -313,9 +431,11 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
               ),
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
-                initialValue: _selectedBarangay,
+                initialValue: _selectedBarangay.isEmpty
+                    ? null
+                    : _selectedBarangay,
                 decoration: const InputDecoration(
-                  labelText: 'Barangay',
+                  labelText: 'Barangay detected from pin',
                   prefixIcon: Icon(Icons.location_city_rounded),
                 ),
                 items: rosarioBarangays
@@ -327,11 +447,19 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
                     )
                     .toList(),
                 onChanged: (value) {
+                  if (_selectedIncidentPoint != null) return;
                   setState(
                     () => _selectedBarangay = value ?? _selectedBarangay,
                   );
                 },
               ),
+              if (_isResolvingBarangay) ...[
+                const SizedBox(height: 6),
+                const Text(
+                  'Detecting barangay from the selected pin...',
+                  style: TextStyle(color: AppColors.muted),
+                ),
+              ],
               const SizedBox(height: 12),
               TextFormField(
                 controller: _locationController,
@@ -429,8 +557,10 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
             onChanged: (point) {
               setState(() {
                 _selectedIncidentPoint = point;
+                _selectedBarangay = '';
                 _errorText = null;
               });
+              _resolveBarangayFromPin(point);
             },
           ),
           const SizedBox(height: 14),

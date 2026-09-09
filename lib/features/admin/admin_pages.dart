@@ -1,7 +1,9 @@
 part of '../../app.dart';
 
 class AdminOverviewPage extends StatelessWidget {
-  const AdminOverviewPage({super.key});
+  const AdminOverviewPage({super.key, this.onOpenIncident});
+
+  final ValueChanged<String>? onOpenIncident;
 
   @override
   Widget build(BuildContext context) {
@@ -47,7 +49,7 @@ class AdminOverviewPage extends StatelessWidget {
             leftFlex: 3,
             rightFlex: 1,
             left: const MapPreview(accent: AppColors.blue, height: 420),
-            right: const ActiveIncidentPanel(),
+            right: ActiveIncidentPanel(onOpenIncident: onOpenIncident),
           ),
           const SizedBox(height: 14),
           LayoutSwitcher(
@@ -65,10 +67,20 @@ class AdminOverviewPage extends StatelessWidget {
           ),
           const SizedBox(height: 18),
           const AdminTablePanel(),
-          const SizedBox(height: 18),
-          const CitizenVerificationPanel(),
         ],
       ),
+    );
+  }
+}
+
+class AdminVerificationPage extends StatelessWidget {
+  const AdminVerificationPage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: const [CitizenVerificationPanel()],
     );
   }
 }
@@ -79,6 +91,29 @@ class CitizenVerificationPanel extends StatelessWidget {
   Future<void> _verify(BuildContext context, String userId, String name) async {
     final admin = appAuth.currentUser;
     if (admin == null) return;
+    final profile = await appDb.collection('users').doc(userId).get();
+    final data = profile.data() ?? const <String, dynamic>{};
+    const acceptedIds = {
+      'Philippine National ID',
+      'Driver License',
+      'Passport',
+      'UMID',
+      'PhilHealth ID',
+    };
+    final idType = textField(data, 'governmentIdType');
+    final idImage = textField(data, 'governmentIdImage');
+    if (!acceptedIds.contains(idType) || !idImage.startsWith('data:image/')) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Approval blocked: valid government ID image is required.',
+            ),
+          ),
+        );
+      }
+      return;
+    }
     await appDb.collection('users').doc(userId).update({
       'isVerified': true,
       'verificationStatus': 'approved',
@@ -1447,8 +1482,50 @@ class AdminIncidentMobileRow extends StatelessWidget {
   }
 }
 
-class AdminTablePanel extends StatelessWidget {
+class _BarangayFilterChip extends StatelessWidget {
+  const _BarangayFilterChip({
+    required this.label,
+    required this.count,
+    required this.selected,
+    required this.onSelected,
+  });
+
+  final String label;
+  final int count;
+  final bool selected;
+  final VoidCallback onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return FilterChip(
+      selected: selected,
+      onSelected: (_) => onSelected(),
+      avatar: Icon(
+        Icons.location_city_rounded,
+        size: 16,
+        color: selected ? AppColors.text : AppColors.blue,
+      ),
+      label: Text('$label  $count'),
+      selectedColor: AppColors.blue.withValues(alpha: 0.22),
+      checkmarkColor: AppColors.blue,
+      side: BorderSide(color: AppColors.line),
+      labelStyle: TextStyle(
+        color: selected ? AppColors.text : AppColors.muted,
+        fontWeight: FontWeight.w700,
+      ),
+    );
+  }
+}
+
+class AdminTablePanel extends StatefulWidget {
   const AdminTablePanel({super.key});
+
+  @override
+  State<AdminTablePanel> createState() => _AdminTablePanelState();
+}
+
+class _AdminTablePanelState extends State<AdminTablePanel> {
+  String _selectedBarangay = 'All barangays';
 
   @override
   Widget build(BuildContext context) {
@@ -1488,70 +1565,146 @@ class AdminTablePanel extends StatelessWidget {
                 );
               }
 
+              final barangayCounts = <String, int>{};
+              for (final doc in docs) {
+                final barangay = textField(
+                  doc.data(),
+                  'barangayName',
+                  'Unassigned barangay',
+                );
+                barangayCounts[barangay] = (barangayCounts[barangay] ?? 0) + 1;
+              }
+              final visibleDocs = _selectedBarangay == 'All barangays'
+                  ? docs
+                  : docs
+                        .where(
+                          (doc) =>
+                              textField(
+                                doc.data(),
+                                'barangayName',
+                                'Unassigned barangay',
+                              ) ==
+                              _selectedBarangay,
+                        )
+                        .toList();
+
               return LayoutBuilder(
                 builder: (context, constraints) {
-                  if (constraints.maxWidth < 760) {
-                    return Column(
+                  final filter = Panel(
+                    padding: const EdgeInsets.fromLTRB(14, 12, 14, 4),
+                    child: Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
                       children: [
-                        for (var index = 0; index < docs.length; index++) ...[
-                          AdminIncidentMobileRow(data: docs[index].data()),
-                          if (index < docs.length - 1) const Divider(height: 1),
-                        ],
+                        _BarangayFilterChip(
+                          label: 'All barangays',
+                          count: docs.length,
+                          selected: _selectedBarangay == 'All barangays',
+                          onSelected: () => setState(
+                            () => _selectedBarangay = 'All barangays',
+                          ),
+                        ),
+                        ...barangayCounts.entries.map(
+                          (entry) => _BarangayFilterChip(
+                            label: entry.key,
+                            count: entry.value,
+                            selected: _selectedBarangay == entry.key,
+                            onSelected: () =>
+                                setState(() => _selectedBarangay = entry.key),
+                          ),
+                        ),
                       ],
-                    );
-                  }
+                    ),
+                  );
 
-                  return AppDataTable(
-                    columns: const [
-                      DataColumn(label: Text('Evidence')),
-                      DataColumn(label: Text('Incident')),
-                      DataColumn(label: Text('Location')),
-                      DataColumn(label: Text('Priority')),
-                      DataColumn(label: Text('Status')),
-                      DataColumn(label: Text('Reporter')),
-                      DataColumn(label: Text('Submitted')),
-                      DataColumn(label: Text('Actions')),
-                    ],
-                    rows: docs.map((doc) {
-                      final data = doc.data();
-                      return DataRow(
-                        cells: [
-                          DataCell(
-                            IncidentEvidenceThumbnail(
-                              dataUrl: textField(data, 'evidenceImage'),
-                            ),
-                          ),
-                          DataCell(Text(textField(data, 'type', '-'))),
-                          DataCell(
-                            AppTableText(
-                              '${textField(data, 'barangayName', '-')} | '
-                              '${textField(data, 'address', '-')}',
-                              maxWidth: 220,
-                            ),
-                          ),
-                          DataCell(Text(textField(data, 'priority', '-'))),
-                          DataCell(Text(textField(data, 'status', '-'))),
-                          DataCell(
-                            AppTableText(
-                              textField(data, 'reporterName', '-'),
-                              maxWidth: 170,
-                            ),
-                          ),
-                          DataCell(Text(formatTimestamp(data['createdAt']))),
-                          DataCell(
-                            IconButton(
-                              tooltip: 'View report',
-                              onPressed: () => showDialog<void>(
-                                context: context,
-                                builder: (context) =>
-                                    AdminIncidentDetailsDialog(data: data),
+                  final records = constraints.maxWidth < 760
+                      ? Column(
+                          children: [
+                            for (
+                              var index = 0;
+                              index < visibleDocs.length;
+                              index++
+                            ) ...[
+                              AdminIncidentMobileRow(
+                                data: visibleDocs[index].data(),
                               ),
-                              icon: const Icon(Icons.visibility_rounded),
-                            ),
-                          ),
-                        ],
-                      );
-                    }).toList(),
+                              if (index < visibleDocs.length - 1)
+                                const Divider(height: 1),
+                            ],
+                          ],
+                        )
+                      : AppDataTable(
+                          columns: const [
+                            DataColumn(label: Text('Evidence')),
+                            DataColumn(label: Text('Incident')),
+                            DataColumn(label: Text('Location')),
+                            DataColumn(label: Text('Priority')),
+                            DataColumn(label: Text('Status')),
+                            DataColumn(label: Text('Reporter')),
+                            DataColumn(label: Text('Submitted')),
+                            DataColumn(label: Text('Actions')),
+                          ],
+                          rows: visibleDocs.map((doc) {
+                            final data = doc.data();
+                            return DataRow(
+                              cells: [
+                                DataCell(
+                                  IncidentEvidenceThumbnail(
+                                    dataUrl: textField(data, 'evidenceImage'),
+                                  ),
+                                ),
+                                DataCell(Text(textField(data, 'type', '-'))),
+                                DataCell(
+                                  AppTableText(
+                                    '${textField(data, 'barangayName', '-')} | '
+                                    '${textField(data, 'address', '-')}',
+                                    maxWidth: 220,
+                                  ),
+                                ),
+                                DataCell(
+                                  Text(textField(data, 'priority', '-')),
+                                ),
+                                DataCell(Text(textField(data, 'status', '-'))),
+                                DataCell(
+                                  AppTableText(
+                                    textField(data, 'reporterName', '-'),
+                                    maxWidth: 170,
+                                  ),
+                                ),
+                                DataCell(
+                                  Text(formatTimestamp(data['createdAt'])),
+                                ),
+                                DataCell(
+                                  IconButton(
+                                    tooltip: 'View report',
+                                    onPressed: () => showDialog<void>(
+                                      context: context,
+                                      builder: (context) =>
+                                          AdminIncidentDetailsDialog(
+                                            data: data,
+                                          ),
+                                    ),
+                                    icon: const Icon(Icons.visibility_rounded),
+                                  ),
+                                ),
+                              ],
+                            );
+                          }).toList(),
+                        );
+
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      filter,
+                      const SizedBox(height: 14),
+                      if (visibleDocs.isEmpty)
+                        const Text(
+                          'No incidents in this barangay.',
+                          style: TextStyle(color: AppColors.muted),
+                        )
+                      else
+                        records,
+                    ],
                   );
                 },
               );

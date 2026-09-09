@@ -305,6 +305,11 @@ List<AppDestination> destinationsFor(UserRole role) {
         AppDestination('home', 'Overview', Icons.dashboard_rounded),
         AppDestination('barangays', 'Barangay', Icons.location_city_rounded),
         AppDestination('incidents', 'Incidents', Icons.table_rows_rounded),
+        AppDestination(
+          'verification',
+          'Verification',
+          Icons.verified_user_rounded,
+        ),
         AppDestination('analytics', 'Analytics', Icons.query_stats_rounded),
         AppDestination('admins', 'Accounts', Icons.manage_accounts_rounded),
         AppDestination('logs', 'Logs', Icons.history_rounded),
@@ -330,6 +335,7 @@ class AppShell extends StatefulWidget {
 
 class _AppShellState extends State<AppShell> {
   int _index = 0;
+  String? _selectedIncidentId;
 
   @override
   Widget build(BuildContext context) {
@@ -342,6 +348,30 @@ class _AppShellState extends State<AppShell> {
         final useDrawer =
             widget.role == UserRole.admin || destinations.length > 5;
         if (wide) {
+          if (widget.role == UserRole.admin) {
+            return Scaffold(
+              body: Column(
+                children: [
+                  AdminTopNav(
+                    destinations: destinations,
+                    selectedIndex: _index,
+                    onSelected: (index) => setState(() => _index = index),
+                    onSignOut: widget.onSignOut,
+                  ),
+                  AdminPageHeader(destination: destination),
+                  Expanded(
+                    child: PageChrome(
+                      role: widget.role,
+                      destination: destination,
+                      includeHeader: false,
+                      child: pageFor(destination.key, widget.role),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }
+
           return Scaffold(
             body: Row(
               children: [
@@ -445,7 +475,21 @@ class _AppShellState extends State<AppShell> {
   Widget pageFor(String key, UserRole role) {
     switch (key) {
       case 'home':
-        return RoleDashboard(role: role);
+        return RoleDashboard(
+          role: role,
+          onOpenIncident: role == UserRole.bfp || role == UserRole.admin
+              ? (incidentId) {
+                  final incidentIndex = destinationsFor(
+                    role,
+                  ).indexWhere((item) => item.key == 'incidents');
+                  if (incidentIndex < 0) return;
+                  setState(() {
+                    _selectedIncidentId = incidentId;
+                    _index = incidentIndex;
+                  });
+                }
+              : null,
+        );
       case 'report':
         return role == UserRole.citizen && !widget.isVerified
             ? const VerificationRequiredPage()
@@ -459,16 +503,224 @@ class _AppShellState extends State<AppShell> {
       case 'barangays':
         return const BarangaysPage();
       case 'incidents':
-        return ReportsReviewPage(role: role);
+        return role == UserRole.bfp
+            ? BfpIncidentsPage(selectedIncidentId: _selectedIncidentId)
+            : ReportsReviewPage(role: role);
       case 'analytics':
         return AnalyticsPage(role: role);
       case 'admins':
         return const AdminAccountsPage();
+      case 'verification':
+        return const AdminVerificationPage();
       case 'logs':
         return const ActivityLogsPage();
       default:
         return RoleDashboard(role: role);
     }
+  }
+}
+
+class AdminTopNav extends StatelessWidget {
+  const AdminTopNav({
+    super.key,
+    required this.destinations,
+    required this.selectedIndex,
+    required this.onSelected,
+    required this.onSignOut,
+  });
+
+  final List<AppDestination> destinations;
+  final int selectedIndex;
+  final ValueChanged<int> onSelected;
+  final VoidCallback onSignOut;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 76,
+      padding: const EdgeInsets.symmetric(horizontal: 28),
+      decoration: const BoxDecoration(
+        color: AppColors.panel,
+        border: Border(bottom: BorderSide(color: AppColors.line)),
+      ),
+      child: Row(
+        children: [
+          BfpBadge(size: 44, accent: AppColors.success),
+          const SizedBox(width: 12),
+          const SizedBox(
+            width: 145,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'BFP ROSARIO',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900),
+                ),
+                Text(
+                  'Emergency GIS | Web Control',
+                  style: TextStyle(color: AppColors.muted, fontSize: 11),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 20),
+          Expanded(
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  for (var index = 0; index < destinations.length; index++)
+                    _AdminTopNavItem(
+                      destination: destinations[index],
+                      selected: index == selectedIndex,
+                      onTap: () => onSelected(index),
+                    ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(width: 18),
+          const Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.admin_panel_settings_rounded,
+                color: AppColors.success,
+                size: 21,
+              ),
+              SizedBox(width: 7),
+              Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'System Admin',
+                    style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12),
+                  ),
+                  Text(
+                    'Administrator',
+                    style: TextStyle(color: AppColors.muted, fontSize: 9),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(width: 10),
+          IconButton(
+            tooltip: 'Sign out',
+            onPressed: onSignOut,
+            icon: const Icon(Icons.logout_rounded),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class AdminPageHeader extends StatelessWidget {
+  const AdminPageHeader({super.key, required this.destination});
+
+  final AppDestination destination;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(28, 22, 28, 0),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  destination.label,
+                  style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                const Text(
+                  'Rosario, Batangas | System Admin',
+                  style: TextStyle(color: AppColors.muted),
+                ),
+              ],
+            ),
+          ),
+          StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+            stream: appAuth.currentUser == null
+                ? null
+                : appDb
+                      .collection('notifications')
+                      .where('uid', isEqualTo: appAuth.currentUser!.uid)
+                      .where('read', isEqualTo: false)
+                      .snapshots(),
+            builder: (context, snapshot) {
+              final count = snapshot.data?.size ?? 0;
+              return OutlinedButton.icon(
+                onPressed: () => showDialog<void>(
+                  context: context,
+                  builder: (context) => const AlertsDialog(),
+                ),
+                icon: const Icon(Icons.notifications_active_rounded),
+                label: Text('$count alerts'),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AdminTopNavItem extends StatelessWidget {
+  const _AdminTopNavItem({
+    required this.destination,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final AppDestination destination;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 6),
+      child: Material(
+        color: selected
+            ? AppColors.success.withValues(alpha: 0.18)
+            : Colors.transparent,
+        borderRadius: BorderRadius.circular(10),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(10),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            child: Row(
+              children: [
+                Icon(
+                  destination.icon,
+                  size: 18,
+                  color: selected ? AppColors.success : AppColors.muted,
+                ),
+                const SizedBox(width: 7),
+                Text(
+                  destination.label,
+                  style: TextStyle(
+                    color: selected ? AppColors.text : AppColors.muted,
+                    fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 
@@ -763,7 +1015,10 @@ class HeaderBar extends StatelessWidget {
         const SizedBox(width: 16),
         if (role == UserRole.bfp) ...[
           FilledButton.icon(
-            onPressed: () {},
+            onPressed: () => showDialog<void>(
+              context: context,
+              builder: (context) => const EmergencyModeDialog(),
+            ),
             icon: const Icon(Icons.notifications_active_rounded, size: 16),
             label: const Text('Emergency Mode'),
             style: FilledButton.styleFrom(
@@ -785,7 +1040,10 @@ class HeaderBar extends StatelessWidget {
           builder: (context, snapshot) {
             final count = snapshot.data?.size ?? 0;
             return OutlinedButton.icon(
-              onPressed: () {},
+              onPressed: () => showDialog<void>(
+                context: context,
+                builder: (context) => const AlertsDialog(),
+              ),
               icon: const Icon(Icons.notifications_active_rounded),
               label: Text('$count alerts'),
             );
@@ -796,10 +1054,145 @@ class HeaderBar extends StatelessWidget {
   }
 }
 
+class EmergencyModeDialog extends StatelessWidget {
+  const EmergencyModeDialog({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      icon: const Icon(
+        Icons.notification_important_rounded,
+        color: AppColors.fire,
+        size: 42,
+      ),
+      title: const Text('Emergency Mode'),
+      content: const Text(
+        'Emergency monitoring is active. New verified incidents will appear in the BFP response queue and trigger alerts.',
+      ),
+      actions: [
+        FilledButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Continue monitoring'),
+        ),
+      ],
+    );
+  }
+}
+
+class AlertsDialog extends StatelessWidget {
+  const AlertsDialog({super.key});
+
+  Future<void> _acknowledge(
+    BuildContext context,
+    QueryDocumentSnapshot<Map<String, dynamic>> alert,
+  ) async {
+    await appDb.collection('notifications').doc(alert.id).update({
+      'read': true,
+      'acknowledged': true,
+      'acknowledgedBy': appAuth.currentUser?.uid,
+      'acknowledgedAt': FieldValue.serverTimestamp(),
+    });
+    if (context.mounted) Navigator.pop(context);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final uid = appAuth.currentUser?.uid;
+    return AlertDialog(
+      title: const Text('Incident alerts'),
+      content: SizedBox(
+        width: 460,
+        child: uid == null
+            ? const Text('No signed-in user.')
+            : StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                stream: appDb
+                    .collection('notifications')
+                    .where('uid', isEqualTo: uid)
+                    .where('read', isEqualTo: false)
+                    .snapshots(),
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return const SizedBox(
+                      height: 80,
+                      child: Center(child: CircularProgressIndicator()),
+                    );
+                  }
+                  if (snapshot.hasError) {
+                    return Text(
+                      safeErrorMessage(snapshot.error!),
+                      style: const TextStyle(color: AppColors.fire),
+                    );
+                  }
+                  final alerts = snapshot.data?.docs ?? [];
+                  if (alerts.isEmpty) {
+                    return const SizedBox(
+                      height: 70,
+                      child: Center(
+                        child: Text(
+                          'No unread incident alerts.',
+                          style: TextStyle(color: AppColors.muted),
+                        ),
+                      ),
+                    );
+                  }
+                  return ConstrainedBox(
+                    constraints: const BoxConstraints(maxHeight: 420),
+                    child: ListView.separated(
+                      shrinkWrap: true,
+                      itemCount: alerts.length,
+                      separatorBuilder: (_, index) => const Divider(height: 1),
+                      itemBuilder: (context, index) {
+                        final alert = alerts[index];
+                        final data = alert.data();
+                        final priority = textField(data, 'priority', 'Medium');
+                        return ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: CircleAvatar(
+                            backgroundColor: AppColors.fire.withValues(
+                              alpha: 0.18,
+                            ),
+                            child: const Icon(
+                              Icons.warning_rounded,
+                              color: AppColors.fire,
+                            ),
+                          ),
+                          title: Text(
+                            textField(data, 'title', 'Emergency alert'),
+                            style: const TextStyle(fontWeight: FontWeight.w800),
+                          ),
+                          subtitle: Text(
+                            '${textField(data, 'body', 'Review incident details.')}\n$priority priority',
+                          ),
+                          isThreeLine: true,
+                          trailing: IconButton(
+                            tooltip: 'Acknowledge alert',
+                            onPressed: () => _acknowledge(context, alert),
+                            icon: const Icon(
+                              Icons.check_circle_outline_rounded,
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  );
+                },
+              ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Close'),
+        ),
+      ],
+    );
+  }
+}
+
 class RoleDashboard extends StatelessWidget {
-  const RoleDashboard({super.key, required this.role});
+  const RoleDashboard({super.key, required this.role, this.onOpenIncident});
 
   final UserRole role;
+  final ValueChanged<String>? onOpenIncident;
 
   @override
   Widget build(BuildContext context) {
@@ -809,9 +1202,9 @@ class RoleDashboard extends StatelessWidget {
       case UserRole.barangay:
         return const BarangayDashboard();
       case UserRole.bfp:
-        return const BfpCommandDashboard();
+        return BfpCommandDashboard(onOpenIncident: onOpenIncident);
       case UserRole.admin:
-        return const AdminOverviewPage();
+        return AdminOverviewPage(onOpenIncident: onOpenIncident);
     }
   }
 }

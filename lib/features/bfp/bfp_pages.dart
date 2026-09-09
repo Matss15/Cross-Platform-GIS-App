@@ -1,7 +1,9 @@
 part of '../../app.dart';
 
 class BfpCommandDashboard extends StatelessWidget {
-  const BfpCommandDashboard({super.key});
+  const BfpCommandDashboard({super.key, this.onOpenIncident});
+
+  final ValueChanged<String>? onOpenIncident;
 
   @override
   Widget build(BuildContext context) {
@@ -48,7 +50,7 @@ class BfpCommandDashboard extends StatelessWidget {
           leftFlex: 3,
           rightFlex: 1,
           left: const MapPreview(accent: AppColors.blue, height: 420),
-          right: const ActiveIncidentPanel(),
+          right: ActiveIncidentPanel(onOpenIncident: onOpenIncident),
         ),
         const SizedBox(height: 14),
         LayoutSwitcher(
@@ -69,8 +71,144 @@ class BfpCommandDashboard extends StatelessWidget {
   }
 }
 
+class BfpIncidentsPage extends StatefulWidget {
+  const BfpIncidentsPage({super.key, this.selectedIncidentId});
+
+  final String? selectedIncidentId;
+
+  @override
+  State<BfpIncidentsPage> createState() => _BfpIncidentsPageState();
+}
+
+class _BfpIncidentsPageState extends State<BfpIncidentsPage> {
+  late String? _selectedIncidentId = widget.selectedIncidentId;
+
+  @override
+  Widget build(BuildContext context) {
+    return Panel(
+      child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+        stream: appDb
+            .collection('incidents')
+            .orderBy('createdAt', descending: true)
+            .limit(50)
+            .snapshots(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (snapshot.hasError) {
+            return Text(
+              safeErrorMessage(snapshot.error!),
+              style: const TextStyle(color: AppColors.fire),
+            );
+          }
+          final docs = snapshot.data?.docs ?? [];
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const SectionTitle(
+                title: 'BFP incident response',
+                subtitle:
+                    'Select an incident to monitor and update its response status.',
+              ),
+              const SizedBox(height: 14),
+              if (docs.isEmpty)
+                const Text(
+                  'No incident reports yet.',
+                  style: TextStyle(color: AppColors.muted),
+                )
+              else
+                ...docs.map((doc) {
+                  final data = doc.data();
+                  final status = textField(data, 'status', 'Pending');
+                  final priority = textField(data, 'priority', 'Medium');
+                  final selected = doc.id == _selectedIncidentId;
+                  final color = colorForIncident(
+                    priority: priority,
+                    status: status,
+                  );
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: Material(
+                      color: selected
+                          ? AppColors.blue.withValues(alpha: 0.12)
+                          : AppColors.field,
+                      borderRadius: BorderRadius.circular(12),
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(12),
+                        onTap: () =>
+                            setState(() => _selectedIncidentId = doc.id),
+                        child: Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.local_fire_department_rounded,
+                                color: color,
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      textField(data, 'type', 'Fire incident'),
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w800,
+                                      ),
+                                    ),
+                                    Text(
+                                      '${textField(data, 'barangayName', 'Rosario')} | $status',
+                                      style: const TextStyle(
+                                        color: AppColors.muted,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              StatusPill(
+                                label: priority,
+                                icon: Icons.flag_rounded,
+                                color: color,
+                                dense: true,
+                              ),
+                              const SizedBox(width: 8),
+                              IconButton(
+                                tooltip: 'Update response status',
+                                onPressed: () => showDialog<void>(
+                                  context: context,
+                                  builder: (context) => _IncidentStatusDialog(
+                                    incidentId: doc.id,
+                                    title: textField(
+                                      data,
+                                      'type',
+                                      'Fire incident',
+                                    ),
+                                    status: status,
+                                  ),
+                                ),
+                                icon: const Icon(Icons.arrow_forward_rounded),
+                                color: AppColors.blue,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                }),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
 class ActiveIncidentPanel extends StatelessWidget {
-  const ActiveIncidentPanel({super.key});
+  const ActiveIncidentPanel({super.key, this.onOpenIncident});
+
+  final ValueChanged<String>? onOpenIncident;
 
   @override
   Widget build(BuildContext context) {
@@ -109,49 +247,71 @@ class ActiveIncidentPanel extends StatelessWidget {
                   );
                   return Padding(
                     padding: const EdgeInsets.only(bottom: 12),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        CircleAvatar(
-                          radius: 11,
-                          backgroundColor: color,
-                          child: Text(
-                            '${index + 1}',
-                            style: const TextStyle(
-                              fontSize: 11,
-                              color: Colors.white,
-                            ),
-                          ),
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(10),
+                      onTap: onOpenIncident == null
+                          ? null
+                          : () => onOpenIncident!(visible[index].id),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 4,
+                          vertical: 4,
                         ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                textField(data, 'type', 'Fire incident'),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            CircleAvatar(
+                              radius: 11,
+                              backgroundColor: color,
+                              child: Text(
+                                '${index + 1}',
                                 style: const TextStyle(
-                                  fontWeight: FontWeight.w800,
-                                  fontSize: 12,
-                                ),
-                              ),
-                              Text(
-                                textField(data, 'barangayName', 'Rosario'),
-                                style: const TextStyle(
-                                  color: AppColors.muted,
                                   fontSize: 11,
+                                  color: Colors.white,
                                 ),
                               ),
-                            ],
-                          ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    textField(data, 'type', 'Fire incident'),
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                  Text(
+                                    textField(data, 'barangayName', 'Rosario'),
+                                    style: const TextStyle(
+                                      color: AppColors.muted,
+                                      fontSize: 11,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            StatusPill(
+                              label: priority,
+                              icon: Icons.circle,
+                              color: color,
+                              dense: true,
+                            ),
+                            const SizedBox(width: 4),
+                            IconButton(
+                              tooltip: 'Open incident details',
+                              onPressed: onOpenIncident == null
+                                  ? null
+                                  : () => onOpenIncident!(visible[index].id),
+                              icon: const Icon(Icons.arrow_forward_rounded),
+                              color: AppColors.blue,
+                              visualDensity: VisualDensity.compact,
+                            ),
+                          ],
                         ),
-                        StatusPill(
-                          label: priority,
-                          icon: Icons.circle,
-                          color: color,
-                          dense: true,
-                        ),
-                      ],
+                      ),
                     ),
                   );
                 }),
@@ -159,6 +319,83 @@ class ActiveIncidentPanel extends StatelessWidget {
           );
         },
       ),
+    );
+  }
+}
+
+class _IncidentStatusDialog extends StatelessWidget {
+  const _IncidentStatusDialog({
+    required this.incidentId,
+    required this.title,
+    required this.status,
+  });
+
+  final String incidentId;
+  final String title;
+  final String status;
+
+  static const statusOptions = [
+    'Pending',
+    'Verified',
+    'Dispatched',
+    'On Scene',
+    'Contained',
+    'Resolved',
+    'Closed',
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final command = const IncidentCommandCard();
+    return AlertDialog(
+      title: const Text('Update response status'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
+          const SizedBox(height: 8),
+          Text('Current status: $status'),
+          const SizedBox(height: 16),
+          const Text(
+            'Update status to:',
+            style: TextStyle(fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final option in statusOptions)
+                if (option != status)
+                  OutlinedButton(
+                    onPressed: () async {
+                      await command._advanceStatus(
+                        context,
+                        incidentId,
+                        title,
+                        option,
+                      );
+                      if (context.mounted) Navigator.pop(context);
+                    },
+                    child: Text(option),
+                  )
+                else
+                  StatusPill(
+                    label: '$option (current)',
+                    icon: Icons.radio_button_checked_rounded,
+                    color: AppColors.blue,
+                  ),
+            ],
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+      ],
     );
   }
 }
@@ -191,9 +428,10 @@ class IncidentPriorityPanel extends StatelessWidget {
         _PanelHeading(title: 'Incident priority', action: 'Today'),
         SizedBox(height: 18),
         SizedBox(
-          height: 82,
+          height: 150,
           child: Center(
             child: DonutChart(
+              dimension: 150,
               entries: [
                 MapEntry('High priority', 3),
                 MapEntry('Medium priority', 3),
@@ -374,26 +612,99 @@ class _DispatchRow extends StatelessWidget {
 class IncidentCommandCard extends StatelessWidget {
   const IncidentCommandCard({super.key});
 
-  Future<void> _markDispatched(
+  Future<void> _advanceStatus(
     BuildContext context,
     String incidentId,
     String title,
+    String nextStatus,
   ) async {
-    await appDb.collection('incidents').doc(incidentId).update({
-      'status': 'Dispatched',
-      'updatedAt': FieldValue.serverTimestamp(),
-    });
+    String? note;
+    if (nextStatus == 'Resolved' || nextStatus == 'Closed') {
+      final controller = TextEditingController();
+      note = await showDialog<String>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: Text('$nextStatus incident'),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            minLines: 3,
+            maxLines: 5,
+            decoration: const InputDecoration(
+              labelText: 'Response summary',
+              hintText: 'Describe the action taken and outcome.',
+              alignLabelWithHint: true,
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final value = controller.text.trim();
+                if (value.isEmpty) return;
+                Navigator.pop(dialogContext, value);
+              },
+              child: Text(nextStatus),
+            ),
+          ],
+        ),
+      );
+      controller.dispose();
+      if (note == null || note.isEmpty) return;
+    }
 
+    final user = appAuth.currentUser;
+    if (user == null) return;
+    final update = <String, dynamic>{
+      'status': nextStatus,
+      'statusUpdatedBy': user.uid,
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
+    if (nextStatus == 'Dispatched') update['assignedTo'] = user.uid;
+    if (note != null) update['responseNotes'] = note;
+    if (nextStatus == 'Resolved') {
+      update['resolvedAt'] = FieldValue.serverTimestamp();
+    }
+    if (nextStatus == 'Closed') {
+      update['closedAt'] = FieldValue.serverTimestamp();
+    }
+    await appDb.collection('incidents').doc(incidentId).update(update);
+
+    final metadata = <String, dynamic>{'status': nextStatus};
+    if (note != null) metadata['summary'] = note;
     await writeActivityLog(
-      action: 'Marked incident dispatched',
+      action: 'Marked incident $nextStatus',
       targetId: incidentId,
       targetLabel: title,
+      metadata: metadata,
     );
 
     if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Incident marked as dispatched.')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('Incident marked as $nextStatus.')));
+  }
+
+  String? _nextStatus(String status) {
+    switch (status) {
+      case 'Pending':
+      case 'Verified':
+      case 'Routed to BFP':
+        return 'Dispatched';
+      case 'Dispatched':
+        return 'On Scene';
+      case 'On Scene':
+        return 'Contained';
+      case 'Contained':
+        return 'Resolved';
+      case 'Resolved':
+        return 'Closed';
+      default:
+        return null;
+    }
   }
 
   @override
@@ -430,6 +741,7 @@ class IncidentCommandCard extends StatelessWidget {
           final status = textField(data, 'status', 'Pending');
           final priority = textField(data, 'priority', 'Medium');
           final color = colorForIncident(priority: priority, status: status);
+          final nextStatus = _nextStatus(status);
 
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -481,18 +793,40 @@ class IncidentCommandCard extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 16),
-              FilledButton.icon(
-                onPressed: status == 'Dispatched'
-                    ? null
-                    : () => _markDispatched(context, doc.id, title),
-                icon: const Icon(Icons.radio_rounded),
-                label: Text(
-                  status == 'Dispatched'
-                      ? 'Already dispatched'
-                      : 'Mark dispatched',
+              if (textField(data, 'responseNotes').isNotEmpty)
+                Panel(
+                  padding: const EdgeInsets.all(12),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Icon(Icons.notes_rounded, color: AppColors.muted),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          textField(data, 'responseNotes'),
+                          style: const TextStyle(color: AppColors.muted),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-                style: FilledButton.styleFrom(backgroundColor: AppColors.blue),
-              ),
+              const SizedBox(height: 12),
+              if (nextStatus != null)
+                FilledButton.icon(
+                  onPressed: () =>
+                      _advanceStatus(context, doc.id, title, nextStatus),
+                  icon: const Icon(Icons.arrow_forward_rounded),
+                  label: Text('Mark $nextStatus'),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppColors.blue,
+                  ),
+                )
+              else
+                const StatusPill(
+                  label: 'Response closed',
+                  icon: Icons.check_circle_rounded,
+                  color: AppColors.success,
+                ),
             ],
           );
         },
