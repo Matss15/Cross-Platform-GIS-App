@@ -168,6 +168,42 @@ class _CitizenRegisterDialogState extends State<CitizenRegisterDialog> {
         'governmentIdAiReview': {'status': 'pending'},
       });
 
+      // Gemini review is advisory only. It runs through Firebase AI Logic,
+      // which supports the Gemini Developer API free tier without Functions.
+      try {
+        final ai = await reviewCitizenIdWithGemini(
+          idType: _idType,
+          imageBytes: idBytes,
+        );
+        final confidence = (ai['confidence'] as num?)?.toDouble() ?? 0;
+        await appDb.collection('users').doc(createdUser.uid).update({
+          'governmentIdAiReview': {
+            'status': 'completed',
+            'documentType': '${ai['documentType'] ?? 'unclear'}',
+            'readable': ai['readable'] == true,
+            'appearsGovernmentIssued': ai['appearsGovernmentIssued'] == true,
+            'confidence': confidence.clamp(0, 1),
+            'concerns': (ai['concerns'] is List)
+                ? (ai['concerns'] as List).take(8).map((item) => '$item').toList()
+                : <String>[],
+            'recommendation': '${ai['recommendation'] ?? 'manual_review'}',
+            'model': 'gemini-2.0-flash',
+            'reviewedAt': FieldValue.serverTimestamp(),
+          },
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      } catch (_) {
+        // Registration remains possible; Admin receives the ID for manual review.
+        await appDb.collection('users').doc(createdUser.uid).update({
+          'governmentIdAiReview': {
+            'status': 'error',
+            'recommendation': 'manual_review',
+            'reviewedAt': FieldValue.serverTimestamp(),
+          },
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      }
+
       await writeAccountEmailIndex(
         uid: createdUser.uid,
         email: email,
