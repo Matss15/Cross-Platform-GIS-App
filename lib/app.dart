@@ -3,6 +3,7 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:camera/camera.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_ai/firebase_ai.dart'
     show Content, FirebaseAI, GenerationConfig, InlineDataPart, TextPart;
@@ -13,13 +14,17 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
+import 'package:geolocator/geolocator.dart' as geo;
 import 'package:image_picker/image_picker.dart';
-import 'package:latlong2/latlong.dart';
+import 'package:image/image.dart' as img;
+import 'package:latlong2/latlong.dart' hide Path;
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
 
 import 'config/rosario_data.dart';
+import 'core/web/browser_device.dart';
+import 'core/web/video_frame_grabber.dart';
 import 'firebase_options.dart';
 
 part 'app/bfp_gis_app.dart';
@@ -36,6 +41,8 @@ part 'core/services/activity_log_service.dart';
 part 'core/services/account_email_index_service.dart';
 part 'core/services/emergency_call_service.dart';
 part 'core/services/push_notification_service.dart';
+part 'core/services/place_search_service.dart';
+part 'core/services/presence_service.dart';
 part 'core/models/dashboard_counts.dart';
 part 'core/models/map_point.dart';
 part 'core/models/incident_risk.dart';
@@ -44,6 +51,7 @@ part 'features/auth/admin_web_only_scaffold.dart';
 part 'features/auth/auth_scaffolds.dart';
 part 'features/auth/login_screen.dart';
 part 'features/auth/citizen_register_dialog.dart';
+part 'features/auth/id_auto_scanner.dart';
 part 'features/auth/forgot_password_dialog.dart';
 part 'features/auth/legal_dialog.dart';
 part 'features/auth/session_guard.dart';

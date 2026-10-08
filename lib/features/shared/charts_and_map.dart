@@ -419,7 +419,25 @@ class IncidentLocationPicker extends StatefulWidget {
 }
 
 class _IncidentLocationPickerState extends State<IncidentLocationPicker> {
+  // Gestures that move the map under the fixed center pin.
+  static const _panSources = {
+    MapEventSource.onDrag,
+    MapEventSource.dragEnd,
+    MapEventSource.onMultiFinger,
+    MapEventSource.multiFingerEnd,
+    MapEventSource.flingAnimationController,
+    MapEventSource.doubleTapZoomAnimationController,
+    MapEventSource.scrollWheel,
+    MapEventSource.keyboard,
+  };
+
   late final MapController _mapController;
+  Timer? _settleTimer;
+  bool _isPanning = false;
+
+  /// The last point this picker reported, so the map does not jump when
+  /// that same point comes back in as [IncidentLocationPicker.selectedPoint].
+  LatLng? _reportedPoint;
 
   @override
   void initState() {
@@ -429,6 +447,7 @@ class _IncidentLocationPickerState extends State<IncidentLocationPicker> {
 
   @override
   void dispose() {
+    _settleTimer?.cancel();
     _mapController.dispose();
     super.dispose();
   }
@@ -439,9 +458,51 @@ class _IncidentLocationPickerState extends State<IncidentLocationPicker> {
     _mapController.move(camera.center, zoom);
   }
 
+  void _report(LatLng point) {
+    _reportedPoint = point;
+    widget.onChanged(point);
+  }
+
+  /// The pin stays in the middle of the map, like ride-hailing apps: the
+  /// citizen drags the map, and the spot under the pin is reported once the
+  /// map stops moving.
+  void _onMapEvent(MapEvent event) {
+    if (!_panSources.contains(event.source)) return;
+    if (!_isPanning) setState(() => _isPanning = true);
+    _settleTimer?.cancel();
+    _settleTimer = Timer(const Duration(milliseconds: 350), () {
+      if (!mounted) return;
+      setState(() => _isPanning = false);
+      _report(_mapController.camera.center);
+    });
+  }
+
+  void _onTap(LatLng point) {
+    _settleTimer?.cancel();
+    _mapController.move(point, _mapController.camera.zoom);
+    setState(() => _isPanning = false);
+    _report(point);
+  }
+
+  @override
+  void didUpdateWidget(IncidentLocationPicker oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Bring pins placed by GPS or a place search under the center pin.
+    final point = widget.selectedPoint;
+    if (point != null &&
+        point != oldWidget.selectedPoint &&
+        point != _reportedPoint) {
+      _settleTimer?.cancel();
+      _isPanning = false;
+      final zoom = math.max(_mapController.camera.zoom, 17).toDouble();
+      _mapController.move(point, zoom);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final selectedPoint = widget.selectedPoint;
+    final isSet = selectedPoint != null;
 
     return Panel(
       padding: EdgeInsets.zero,
@@ -456,13 +517,14 @@ class _IncidentLocationPickerState extends State<IncidentLocationPicker> {
                   mapController: _mapController,
                   options: MapOptions(
                     initialCenter: selectedPoint ?? rosarioCenter,
-                    initialZoom: selectedPoint == null ? 12.8 : 16,
+                    initialZoom: isSet ? 17 : 13.4,
                     minZoom: 11,
                     maxZoom: 19,
                     cameraConstraint: CameraConstraint.containCenter(
                       bounds: rosarioBounds,
                     ),
-                    onTap: (_, point) => widget.onChanged(point),
+                    onTap: (_, point) => _onTap(point),
+                    onMapEvent: _onMapEvent,
                     interactionOptions: const InteractionOptions(
                       flags:
                           InteractiveFlag.drag |
@@ -481,29 +543,6 @@ class _IncidentLocationPickerState extends State<IncidentLocationPicker> {
                       maxNativeZoom: 19,
                       retinaMode: RetinaMode.isHighDensity(context),
                     ),
-                    if (selectedPoint != null)
-                      MarkerLayer(
-                        markers: [
-                          Marker(
-                            point: selectedPoint,
-                            width: 52,
-                            height: 52,
-                            alignment: Alignment.bottomCenter,
-                            child: Icon(
-                              Icons.location_pin,
-                              color: widget.accent,
-                              size: 48,
-                              shadows: const [
-                                Shadow(
-                                  color: Colors.black54,
-                                  blurRadius: 8,
-                                  offset: Offset(0, 3),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
                     RichAttributionWidget(
                       attributions: const [
                         TextSourceAttribution('OpenStreetMap contributors'),
@@ -512,17 +551,63 @@ class _IncidentLocationPickerState extends State<IncidentLocationPicker> {
                   ],
                 ),
               ),
+              // Fixed center pin. Its tip marks the map center; it lifts while
+              // the map moves and drops when the spot is picked.
+              IgnorePointer(
+                child: Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      AnimatedSlide(
+                        duration: const Duration(milliseconds: 150),
+                        offset: Offset(0, _isPanning ? -0.25 : 0),
+                        child: AnimatedOpacity(
+                          duration: const Duration(milliseconds: 150),
+                          opacity: isSet || _isPanning ? 1 : 0.55,
+                          child: Icon(
+                            Icons.location_pin,
+                            color: widget.accent,
+                            size: 48,
+                            shadows: const [
+                              Shadow(
+                                color: Colors.black54,
+                                blurRadius: 8,
+                                offset: Offset(0, 3),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      Container(
+                        width: 8,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.45),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                      ),
+                      // Mirrors the pin and shadow height so the pin tip, not
+                      // the middle of the icon, sits on the map center.
+                      const SizedBox(height: 52),
+                    ],
+                  ),
+                ),
+              ),
               Positioned(
                 left: 14,
                 top: 14,
-                child: StatusPill(
-                  label: selectedPoint == null
-                      ? 'Incident pin required'
-                      : 'Incident pin set',
-                  icon: selectedPoint == null
-                      ? Icons.add_location_alt_rounded
-                      : Icons.location_on_rounded,
-                  color: widget.accent,
+                right: 64,
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: StatusPill(
+                    label: isSet
+                        ? 'Naka-pin na ang lugar'
+                        : 'I-drag ang mapa sa lugar',
+                    icon: isSet
+                        ? Icons.location_on_rounded
+                        : Icons.pan_tool_alt_rounded,
+                    color: widget.accent,
+                  ),
                 ),
               ),
               Positioned(
@@ -541,15 +626,17 @@ class _IncidentLocationPickerState extends State<IncidentLocationPicker> {
                       icon: Icons.remove_rounded,
                       onPressed: () => _zoomBy(-1),
                     ),
-                    const SizedBox(height: 8),
-                    MapControlButton(
-                      tooltip: 'Center Rosario',
-                      icon: Icons.my_location_rounded,
-                      onPressed: () => _mapController.move(
-                        selectedPoint ?? rosarioCenter,
-                        selectedPoint == null ? 13.4 : 16,
+                    if (isSet) ...[
+                      const SizedBox(height: 8),
+                      MapControlButton(
+                        tooltip: 'Back to pin',
+                        icon: Icons.center_focus_strong_rounded,
+                        onPressed: () => _mapController.move(
+                          selectedPoint,
+                          math.max(_mapController.camera.zoom, 17).toDouble(),
+                        ),
                       ),
-                    ),
+                    ],
                   ],
                 ),
               ),

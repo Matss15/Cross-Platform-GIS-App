@@ -47,6 +47,15 @@ class Incident {
   }
 }
 
+/// "AI: Critical" style label from the report's photo triage, or null when
+/// the photo was not assessed.
+String? aiAssessmentLabel(Map<String, dynamic>? incident) {
+  final ai = incident?['aiAssessment'];
+  if (ai is! Map || ai['status'] != 'completed') return null;
+  final flag = ai['isEmergency'] == false ? ' (hindi mukhang emergency)' : '';
+  return 'AI: ${ai['severity']}$flag';
+}
+
 Color colorForIncident({required String priority, required String status}) {
   final normalizedPriority = priority.toLowerCase();
   final normalizedStatus = status.toLowerCase();

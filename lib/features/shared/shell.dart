@@ -356,7 +356,7 @@ class _AppShellState extends State<AppShell> {
                     destinations: destinations,
                     selectedIndex: _index,
                     onSelected: (index) => setState(() => _index = index),
-                    onSignOut: widget.onSignOut,
+                    onSignOut: _signOut,
                   ),
                   AdminPageHeader(destination: destination),
                   Expanded(
@@ -380,7 +380,7 @@ class _AppShellState extends State<AppShell> {
                   destinations: destinations,
                   selectedIndex: _index,
                   onSelected: (index) => setState(() => _index = index),
-                  onSignOut: widget.onSignOut,
+                  onSignOut: _signOut,
                 ),
                 Expanded(
                   child: PageChrome(
@@ -404,7 +404,7 @@ class _AppShellState extends State<AppShell> {
                     Navigator.pop(context);
                     setState(() => _index = index);
                   },
-                  onSignOut: widget.onSignOut,
+                  onSignOut: _signOut,
                 )
               : null,
           appBar: AppBar(
@@ -428,7 +428,7 @@ class _AppShellState extends State<AppShell> {
             actions: [
               IconButton(
                 tooltip: 'Sign out',
-                onPressed: widget.onSignOut,
+                onPressed: _signOut,
                 icon: const Icon(Icons.logout_rounded),
               ),
             ],
@@ -465,8 +465,29 @@ class _AppShellState extends State<AppShell> {
         : shell;
 
     return widget.role == UserRole.bfp
-        ? BfpEmergencyAlertListener(child: withIncidentAlerts)
+        ? BfpPresenceReporter(
+            child: BfpEmergencyAlertListener(child: withIncidentAlerts),
+          )
         : withIncidentAlerts;
+  }
+
+  /// BFP accounts are marked offline first, while still allowed to write.
+  Future<void> _signOut() async {
+    if (widget.role == UserRole.bfp) {
+      try {
+        await reportBfpPresence(
+          online: false,
+        ).timeout(const Duration(seconds: 3));
+      } catch (_) {
+        // The online window drops the account on its own.
+      }
+    }
+    widget.onSignOut();
+  }
+
+  void _openDestination(UserRole role, String key) {
+    final index = destinationsFor(role).indexWhere((item) => item.key == key);
+    if (index >= 0) setState(() => _index = index);
   }
 
   bool _isAlertWorkspace(UserRole role) =>
@@ -489,6 +510,7 @@ class _AppShellState extends State<AppShell> {
                   });
                 }
               : null,
+          onReportFire: () => _openDestination(role, 'report'),
         );
       case 'report':
         return role == UserRole.citizen && !widget.isVerified
@@ -499,7 +521,7 @@ class _AppShellState extends State<AppShell> {
       case 'reports':
         return ReportsReviewPage(role: role);
       case 'profile':
-        return ProfilePage(role: role, onSignOut: widget.onSignOut);
+        return ProfilePage(role: role, onSignOut: _signOut);
       case 'barangays':
         return const BarangaysPage();
       case 'incidents':
@@ -1189,16 +1211,22 @@ class AlertsDialog extends StatelessWidget {
 }
 
 class RoleDashboard extends StatelessWidget {
-  const RoleDashboard({super.key, required this.role, this.onOpenIncident});
+  const RoleDashboard({
+    super.key,
+    required this.role,
+    this.onOpenIncident,
+    this.onReportFire,
+  });
 
   final UserRole role;
   final ValueChanged<String>? onOpenIncident;
+  final VoidCallback? onReportFire;
 
   @override
   Widget build(BuildContext context) {
     switch (role) {
       case UserRole.citizen:
-        return const CitizenDashboard();
+        return CitizenDashboard(onReportFire: onReportFire);
       case UserRole.barangay:
         return const BarangayDashboard();
       case UserRole.bfp:

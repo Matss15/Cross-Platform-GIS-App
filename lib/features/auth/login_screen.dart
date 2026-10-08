@@ -375,6 +375,45 @@ class _LoginPanelState extends State<_LoginPanel> {
     );
   }
 
+  // iOS cannot install APKs, so iPhone and iPad users add the web app to
+  // their home screen instead.
+  Future<void> _showAddToHomeScreenSteps() async {
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        icon: const Icon(Icons.add_to_home_screen_rounded),
+        title: const Text('Add to Home Screen'),
+        content: const Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Hindi pwede ang APK sa iPhone o iPad. Gamitin ang web app '
+              'na parang totoong app:',
+            ),
+            SizedBox(height: 12),
+            Text('1. Buksan ang site na ito sa Safari.'),
+            SizedBox(height: 6),
+            Text('2. I-tap ang Share button (kahon na may arrow pataas).'),
+            SizedBox(height: 6),
+            Text('3. Piliin ang "Add to Home Screen", tapos "Add".'),
+            SizedBox(height: 12),
+            Text(
+              'Buksan ang BFP Rescue icon sa home screen tuwing gagamitin.',
+              style: TextStyle(color: AppColors.muted),
+            ),
+          ],
+        ),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _openCitizenRegisterDialog() async {
     final registered = await showDialog<bool>(
       context: context,
@@ -387,8 +426,10 @@ class _LoginPanelState extends State<_LoginPanel> {
   }
 
   Future<void> _downloadAndroidApp() async {
-    final downloadUrl = Uri.base.resolve(
-      'downloads/bfp-rosario-gis-android.zip',
+    // Firebase Hosting (Spark plan) rejects .apk files, so the APK is
+    // served from a public Google Drive file instead.
+    final downloadUrl = Uri.parse(
+      'https://drive.usercontent.google.com/download?id=18e2po97jFuudQtGHCcz7v4acJH14J0pH&export=download&confirm=t',
     );
     final opened = await launchUrl(
       downloadUrl,
@@ -605,13 +646,20 @@ class _LoginPanelState extends State<_LoginPanel> {
                 ),
               ],
             ),
-            if (kIsWeb) ...[
+            if (kIsWeb && !isRunningAsHomeScreenApp()) ...[
               const SizedBox(height: 6),
-              OutlinedButton.icon(
-                onPressed: _downloadAndroidApp,
-                icon: const Icon(Icons.android_rounded),
-                label: const Text('Download Android APK (.zip)'),
-              ),
+              if (detectBrowserDevice() == BrowserDevice.ios)
+                OutlinedButton.icon(
+                  onPressed: _showAddToHomeScreenSteps,
+                  icon: const Icon(Icons.add_to_home_screen_rounded),
+                  label: const Text('Add app to iPhone home screen'),
+                )
+              else
+                OutlinedButton.icon(
+                  onPressed: _downloadAndroidApp,
+                  icon: const Icon(Icons.android_rounded),
+                  label: const Text('Download Android APK'),
+                ),
             ],
             const Divider(height: 24),
             Wrap(
@@ -708,7 +756,7 @@ class _SocialCitizenProfileDialogState
   final _address = TextEditingController();
   String _barangay = rosarioBarangays.first;
   String _idType = 'Philippine National ID';
-  XFile? _idCapture;
+  Uint8List? _idBytes;
   bool _accepted = false;
   bool _saving = false;
   String? _error;
@@ -731,38 +779,22 @@ class _SocialCitizenProfileDialogState
       (value ?? '').trim().isEmpty ? '$label is required.' : null;
 
   Future<void> _captureId() async {
-    final source = await showModalBottomSheet<ImageSource>(
-      context: context,
-      builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.photo_camera_rounded),
-              title: const Text('Scan with camera'),
-              onTap: () => Navigator.pop(context, ImageSource.camera),
-            ),
-            ListTile(
-              leading: const Icon(Icons.upload_file_rounded),
-              title: const Text('Choose ID photo'),
-              onTap: () => Navigator.pop(context, ImageSource.gallery),
-            ),
-          ],
-        ),
-      ),
-    );
-    if (source == null) return;
-    final capture = await ImagePicker().pickImage(
-      source: source,
-      imageQuality: 55,
-      maxWidth: 1400,
-    );
-    if (capture != null && mounted) setState(() => _idCapture = capture);
+    final (:bytes, :error) = await scanGovernmentIdPhoto(context, _idType);
+    if (!mounted) return;
+    if (error != null) {
+      setState(() => _error = error);
+    } else if (bytes != null) {
+      setState(() {
+        _error = null;
+        _idBytes = bytes;
+      });
+    }
   }
 
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
-    if (_idCapture == null) {
+    final idBytes = _idBytes;
+    if (idBytes == null) {
       setState(() {
         _error =
             'Invalid ID: hindi maaaring mag-continue. Mag-upload ng malinaw at valid na government ID.';
@@ -785,8 +817,12 @@ class _SocialCitizenProfileDialogState
         'phone': _phone.text.trim(),
         'address': _address.text.trim(),
         'governmentIdType': _idType,
-        'governmentIdStatus': _idCapture == null ? 'not_submitted' : 'pending',
-        'governmentIdFileName': _idCapture?.name ?? '',
+        'governmentIdStatus': 'pending',
+        'governmentIdFileName': 'government_id_scan.jpg',
+        'governmentIdImage': 'data:image/jpeg;base64,${base64Encode(idBytes)}',
+        // Firestore rules only accept a pending review on create; the result
+        // is written in a follow-up update below.
+        'governmentIdAiReview': {'status': 'pending'},
         'barangayId': barangayIdFor(_barangay),
         'barangayName': _barangay,
         'profileImage': widget.user.photoURL ?? '',
@@ -813,6 +849,14 @@ class _SocialCitizenProfileDialogState
           .collection('users')
           .doc(widget.user.uid)
           .set(profileData, SetOptions(merge: widget.existingProfile));
+      await appDb.collection('users').doc(widget.user.uid).update({
+        'governmentIdAiReview': await reviewGovernmentIdForProfile(
+          idType: _idType,
+          imageBytes: idBytes,
+          citizenName: name,
+        ),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
       await writeAccountEmailIndex(
         uid: widget.user.uid,
         email: email,
@@ -917,13 +961,24 @@ class _SocialCitizenProfileDialogState
                 const SizedBox(height: 8),
                 OutlinedButton.icon(
                   onPressed: _saving ? null : _captureId,
-                  icon: const Icon(Icons.document_scanner_rounded),
+                  icon: const Icon(Icons.qr_code_scanner_rounded),
                   label: Text(
-                    _idCapture == null
-                        ? 'Scan or attach valid ID (required)'
-                        : 'ID captured: ${_idCapture!.name}',
+                    _idBytes == null
+                        ? 'Scan valid ID (required)'
+                        : 'ID scanned. Tap to scan again',
                   ),
                 ),
+                if (_idBytes != null) ...[
+                  const SizedBox(height: 8),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(10),
+                    child: Image.memory(
+                      _idBytes!,
+                      height: 120,
+                      fit: BoxFit.contain,
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 8),
                 const _GovernmentIdNotice(),
                 CheckboxListTile(

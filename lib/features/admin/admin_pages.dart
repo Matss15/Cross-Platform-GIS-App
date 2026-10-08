@@ -28,13 +28,7 @@ class AdminOverviewPage extends StatelessWidget {
                 icon: Icons.fire_truck_rounded,
                 color: AppColors.blue,
               ),
-              MetricTile(
-                title: 'Personnel on duty',
-                value: counts.responders.toString(),
-                helper: 'Available responders',
-                icon: Icons.groups_rounded,
-                color: AppColors.success,
-              ),
+              const OnlineBfpPersonnelTile(),
               MetricTile(
                 title: 'Avg response time',
                 value: '05:42',
@@ -156,6 +150,99 @@ class CitizenVerificationPanel extends StatelessWidget {
     ).showSnackBar(const SnackBar(content: Text('Citizen account rejected.')));
   }
 
+  /// Shows the scanned ID full size, with the advisory AI review, so the
+  /// admin can compare it with the submitted details before deciding.
+  Future<void> _showIdReview(
+    BuildContext context, {
+    required String userId,
+    required String name,
+    required Map<String, dynamic> data,
+    required ImageProvider? idImage,
+  }) async {
+    final decision = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(name),
+        content: SizedBox(
+          width: 560,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '${textField(data, 'governmentIdType', 'Government ID')} | '
+                  '${textField(data, 'email', '-')}\n'
+                  'Barangay: ${textField(data, 'barangayName', '-')} | '
+                  'Phone: ${textField(data, 'phone', '-')}\n'
+                  'Birthdate: ${textField(data, 'birthdate', '-')}',
+                  style: const TextStyle(color: AppColors.muted, height: 1.4),
+                ),
+                const SizedBox(height: 12),
+                if (idImage == null)
+                  const Text(
+                    'Walang na-upload na ID image.',
+                    style: TextStyle(
+                      color: AppColors.fire,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  )
+                else
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: ColoredBox(
+                      color: Colors.black,
+                      child: InteractiveViewer(
+                        maxScale: 5,
+                        child: Image(
+                          image: idImage,
+                          fit: BoxFit.contain,
+                          width: double.infinity,
+                          errorBuilder: (_, _, _) => const Padding(
+                            padding: EdgeInsets.all(24),
+                            child: Text('Hindi mabuksan ang ID image.'),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                if (idImage != null) ...[
+                  const SizedBox(height: 6),
+                  const Text(
+                    'Pinch o scroll para mag-zoom.',
+                    style: TextStyle(color: AppColors.muted, fontSize: 12),
+                  ),
+                ],
+                const SizedBox(height: 12),
+                _IdAiReviewSummary(review: data['governmentIdAiReview']),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Close'),
+          ),
+          OutlinedButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Reject'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Approve'),
+          ),
+        ],
+      ),
+    );
+    if (decision == null || !context.mounted) return;
+    if (decision) {
+      await _verify(context, userId, name);
+    } else {
+      await _reject(context, userId, name);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Panel(
@@ -195,36 +282,193 @@ class CitizenVerificationPanel extends StatelessWidget {
                 children: docs.map((doc) {
                   final data = doc.data();
                   final name = textField(data, 'fullName', 'Citizen');
-                  return ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: const CircleAvatar(
-                      child: Icon(Icons.person_search_rounded),
-                    ),
-                    title: Text(name),
-                    subtitle: Text(
-                      '${textField(data, 'email', '-')} | '
-                      '${textField(data, 'barangayName', '-')}\n'
-                      '${textField(data, 'governmentIdType', 'Government ID')} | '
-                      '${textField(data, 'governmentIdStatus', 'not submitted')}',
-                    ),
-                    isThreeLine: true,
-                    trailing: Wrap(
-                      spacing: 8,
-                      children: [
-                        OutlinedButton(
-                          onPressed: () => _reject(context, doc.id, name),
-                          child: const Text('Reject'),
-                        ),
-                        FilledButton(
-                          onPressed: () => _verify(context, doc.id, name),
-                          child: const Text('Approve'),
-                        ),
-                      ],
+                  final idImage = imageProviderFromDataUrl(
+                    textField(data, 'governmentIdImage'),
+                  );
+                  void openId() => _showIdReview(
+                    context,
+                    userId: doc.id,
+                    name: name,
+                    data: data,
+                    idImage: idImage,
+                  );
+                  // Buttons sit under the details so names and emails keep
+                  // the full width on phones.
+                  return InkWell(
+                    onTap: openId,
+                    borderRadius: BorderRadius.circular(8),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              _IdThumbnail(image: idImage),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      name,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w800,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      textField(data, 'email', '-'),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        color: AppColors.muted,
+                                      ),
+                                    ),
+                                    Text(
+                                      '${textField(data, 'barangayName', '-')} | '
+                                      '${textField(data, 'governmentIdType', 'Government ID')} | '
+                                      '${textField(data, 'governmentIdStatus', 'not submitted')}',
+                                      style: const TextStyle(
+                                        color: AppColors.muted,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 4,
+                            children: [
+                              TextButton.icon(
+                                onPressed: openId,
+                                icon: const Icon(Icons.badge_rounded),
+                                label: const Text('View ID'),
+                              ),
+                              OutlinedButton(
+                                onPressed: () => _reject(context, doc.id, name),
+                                child: const Text('Reject'),
+                              ),
+                              FilledButton(
+                                onPressed: () => _verify(context, doc.id, name),
+                                child: const Text('Approve'),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
                     ),
                   );
                 }).toList(),
               );
             },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _IdThumbnail extends StatelessWidget {
+  const _IdThumbnail({required this.image});
+
+  final ImageProvider? image;
+
+  @override
+  Widget build(BuildContext context) {
+    final image = this.image;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(6),
+      child: SizedBox(
+        width: 64,
+        height: 42,
+        child: image == null
+            ? const ColoredBox(
+                color: AppColors.panel,
+                child: Icon(Icons.no_photography_rounded, size: 20),
+              )
+            : Image(
+                image: image,
+                fit: BoxFit.cover,
+                errorBuilder: (_, _, _) =>
+                    const Icon(Icons.broken_image_rounded, size: 20),
+              ),
+      ),
+    );
+  }
+}
+
+/// The advisory Gemini check stored in `governmentIdAiReview`.
+class _IdAiReviewSummary extends StatelessWidget {
+  const _IdAiReviewSummary({required this.review});
+
+  final Object? review;
+
+  @override
+  Widget build(BuildContext context) {
+    final review = this.review;
+    if (review is! Map || review['status'] != 'completed') {
+      return Text(
+        review is Map && review['status'] == 'pending'
+            ? 'AI review: sinusuri pa.'
+            : 'AI review: hindi available. Suriin nang manu-mano.',
+        style: const TextStyle(color: AppColors.muted),
+      );
+    }
+    final recommendation = '${review['recommendation'] ?? 'manual_review'}';
+    final confidence = ((review['confidence'] as num?) ?? 0) * 100;
+    final concerns = (review['concerns'] as List?)?.cast<Object?>() ?? [];
+    final color = switch (recommendation) {
+      'likely_valid' => AppColors.success,
+      'likely_invalid' => AppColors.fire,
+      _ => AppColors.amber,
+    };
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: color.withValues(alpha: 0.5)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.auto_awesome_rounded, color: color, size: 18),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'AI: ${recommendation.replaceAll('_', ' ')} '
+                  '(${confidence.round()}% confidence)',
+                  style: TextStyle(color: color, fontWeight: FontWeight.w800),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Document: ${review['documentType'] ?? 'unclear'} | '
+            'Readable: ${review['readable'] == true ? 'yes' : 'no'} | '
+            'Government-issued: '
+            '${review['appearsGovernmentIssued'] == true ? 'yes' : 'no'}',
+            style: const TextStyle(fontSize: 12),
+          ),
+          for (final concern in concerns)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text('• $concern', style: const TextStyle(fontSize: 12)),
+            ),
+          const SizedBox(height: 6),
+          const Text(
+            'Gabay lang ang AI. Ang admin pa rin ang magpapasya.',
+            style: TextStyle(color: AppColors.muted, fontSize: 11),
           ),
         ],
       ),
@@ -1273,6 +1517,22 @@ class AdminIncidentDetailsDialog extends StatelessWidget {
                 'Decision Tree: ${prediction.reason}',
                 style: const TextStyle(color: AppColors.muted, fontSize: 12),
               ),
+              if (aiAssessmentLabel(data) case final aiLabel?) ...[
+                const SizedBox(height: 10),
+                StatusPill(
+                  label: 'Photo $aiLabel',
+                  icon: Icons.auto_awesome_rounded,
+                  color: colorForIncident(
+                    priority: '${data['aiAssessment']['severity']}',
+                    status: status,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  '${data['aiAssessment']['reason'] ?? ''}',
+                  style: const TextStyle(color: AppColors.muted, fontSize: 12),
+                ),
+              ],
               const SizedBox(height: 14),
               FilledButton.icon(
                 onPressed: data['status'] == 'Routed to BFP'

@@ -19,6 +19,7 @@ class _CitizenRegisterDialogState extends State<CitizenRegisterDialog> {
   String _selectedBarangay = rosarioBarangays.first;
   String _idType = 'Philippine National ID';
   XFile? _idCapture;
+  Uint8List? _idPreview;
   bool _isCreating = false;
   bool _obscurePassword = true;
   bool _acceptedPolicies = false;
@@ -56,39 +57,23 @@ class _CitizenRegisterDialogState extends State<CitizenRegisterDialog> {
   }
 
   Future<void> _captureId() async {
-    final source = await showModalBottomSheet<ImageSource>(
-      context: context,
-      builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.photo_camera_rounded),
-              title: const Text('Take a photo of valid ID'),
-              onTap: () => Navigator.pop(context, ImageSource.camera),
-            ),
-            ListTile(
-              leading: const Icon(Icons.upload_file_rounded),
-              title: const Text('Upload ID photo'),
-              onTap: () => Navigator.pop(context, ImageSource.gallery),
-            ),
-          ],
-        ),
-      ),
-    );
-    if (source == null) return;
-    final capture = await ImagePicker().pickImage(
-      source: source,
-      imageQuality: 55,
-      maxWidth: 1400,
-    );
-    if (capture == null) return;
-    final bytes = await capture.readAsBytes();
-    if (bytes.length > 450 * 1024) {
-      if (mounted) setState(() => _message = 'ID image must be under 450 KB.');
+    final (:bytes, :error) = await scanGovernmentIdPhoto(context, _idType);
+    if (error != null) {
+      if (mounted) setState(() => _message = error);
       return;
     }
-    if (mounted) setState(() => _idCapture = capture);
+    if (bytes == null) return;
+    if (mounted) {
+      setState(() {
+        _message = null;
+        _idPreview = bytes;
+        _idCapture = XFile.fromData(
+          bytes,
+          name: 'government_id_scan.jpg',
+          mimeType: 'image/jpeg',
+        );
+      });
+    }
   }
 
   Future<void> _register() async {
@@ -170,39 +155,15 @@ class _CitizenRegisterDialogState extends State<CitizenRegisterDialog> {
 
       // Gemini review is advisory only. It runs through Firebase AI Logic,
       // which supports the Gemini Developer API free tier without Functions.
-      try {
-        final ai = await reviewCitizenIdWithGemini(
+      // Registration remains possible if it fails; Admin reviews the ID.
+      await appDb.collection('users').doc(createdUser.uid).update({
+        'governmentIdAiReview': await reviewGovernmentIdForProfile(
           idType: _idType,
           imageBytes: idBytes,
-        );
-        final confidence = (ai['confidence'] as num?)?.toDouble() ?? 0;
-        await appDb.collection('users').doc(createdUser.uid).update({
-          'governmentIdAiReview': {
-            'status': 'completed',
-            'documentType': '${ai['documentType'] ?? 'unclear'}',
-            'readable': ai['readable'] == true,
-            'appearsGovernmentIssued': ai['appearsGovernmentIssued'] == true,
-            'confidence': confidence.clamp(0, 1),
-            'concerns': (ai['concerns'] is List)
-                ? (ai['concerns'] as List).take(8).map((item) => '$item').toList()
-                : <String>[],
-            'recommendation': '${ai['recommendation'] ?? 'manual_review'}',
-            'model': 'gemini-2.0-flash',
-            'reviewedAt': FieldValue.serverTimestamp(),
-          },
-          'updatedAt': FieldValue.serverTimestamp(),
-        });
-      } catch (_) {
-        // Registration remains possible; Admin receives the ID for manual review.
-        await appDb.collection('users').doc(createdUser.uid).update({
-          'governmentIdAiReview': {
-            'status': 'error',
-            'recommendation': 'manual_review',
-            'reviewedAt': FieldValue.serverTimestamp(),
-          },
-          'updatedAt': FieldValue.serverTimestamp(),
-        });
-      }
+          citizenName: fullName,
+        ),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
 
       await writeAccountEmailIndex(
         uid: createdUser.uid,
@@ -359,13 +320,24 @@ class _CitizenRegisterDialogState extends State<CitizenRegisterDialog> {
                 const SizedBox(height: 8),
                 OutlinedButton.icon(
                   onPressed: _isCreating ? null : _captureId,
-                  icon: const Icon(Icons.document_scanner_rounded),
+                  icon: const Icon(Icons.qr_code_scanner_rounded),
                   label: Text(
                     _idCapture == null
-                        ? 'Upload valid ID (required)'
-                        : 'ID attached: ${_idCapture!.name}',
+                        ? 'Scan valid ID (required)'
+                        : 'ID scanned. Tap to scan again',
                   ),
                 ),
+                if (_idPreview != null) ...[
+                  const SizedBox(height: 8),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(10),
+                    child: Image.memory(
+                      _idPreview!,
+                      height: 120,
+                      fit: BoxFit.contain,
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 8),
                 const _GovernmentIdNotice(),
                 const SizedBox(height: 12),

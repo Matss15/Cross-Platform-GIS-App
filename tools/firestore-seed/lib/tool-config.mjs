@@ -4,8 +4,10 @@ import process from 'node:process';
 import admin from 'firebase-admin';
 
 export async function initializeAdminTool() {
+  // Safety flags such as --confirm-incidents are not key paths.
   const serviceAccountPath =
-    process.argv[2] || process.env.GOOGLE_APPLICATION_CREDENTIALS;
+    process.argv.slice(2).find((arg) => !arg.startsWith('--')) ||
+    process.env.GOOGLE_APPLICATION_CREDENTIALS;
 
   if (!serviceAccountPath) {
     throw new Error(

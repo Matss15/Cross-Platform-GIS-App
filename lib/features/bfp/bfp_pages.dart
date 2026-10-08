@@ -28,13 +28,7 @@ class BfpCommandDashboard extends StatelessWidget {
                 icon: Icons.fire_truck_rounded,
                 color: AppColors.blue,
               ),
-              MetricTile(
-                title: 'Personnel on duty',
-                value: counts.responders.toString(),
-                helper: 'Available responders',
-                icon: Icons.groups_rounded,
-                color: AppColors.success,
-              ),
+              const OnlineBfpPersonnelTile(),
               MetricTile(
                 title: 'Avg response time',
                 value: '05:42',
@@ -163,6 +157,15 @@ class _BfpIncidentsPageState extends State<BfpIncidentsPage> {
                                         color: AppColors.muted,
                                       ),
                                     ),
+                                    if (aiAssessmentLabel(data)
+                                        case final aiLabel?)
+                                      Text(
+                                        aiLabel,
+                                        style: const TextStyle(
+                                          color: AppColors.muted,
+                                          fontSize: 12,
+                                        ),
+                                      ),
                                   ],
                                 ),
                               ),

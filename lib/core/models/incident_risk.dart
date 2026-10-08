@@ -22,7 +22,9 @@ IncidentRiskPrediction predictIncidentRisk({
   final priority = textField(incident, 'priority', 'Medium').toLowerCase();
   final type = textField(incident, 'type').toLowerCase();
   var score = switch (priority) {
-    'critical' || 'high' => 3,
+    // Critical alone reaches the High threshold, whatever the type.
+    'critical' => 6,
+    'high' => 3,
     'medium' => 2,
     _ => 1,
   };

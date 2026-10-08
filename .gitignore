@@ -55,3 +55,6 @@ serviceAccountKey*.json
 firebase-adminsdk*.json
 tools/firestore-seed/*service*.json
 tools/firestore-seed/*key*.json
+
+# ESP32 firmware credentials
+hardware/**/secrets.h

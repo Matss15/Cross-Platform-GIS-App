@@ -161,6 +161,24 @@ service cloud.firestore {
         && request.resource.data.createdAt == request.time;
     }
 
+    function urgencyRank(priority) {
+      return priority == 'Critical' ? 3
+        : priority == 'High' ? 2
+        : priority == 'Medium' ? 1
+        : 0;
+    }
+
+    // The AI photo label is the lowest priority a report may be sent with.
+    function validIncidentAiAssessment() {
+      return !('aiAssessment' in request.resource.data)
+        || (request.resource.data.aiAssessment is map
+          && request.resource.data.aiAssessment.status in ['none', 'error', 'completed']
+          && (request.resource.data.aiAssessment.status != 'completed'
+            || (request.resource.data.aiAssessment.severity in ['Low', 'High', 'Critical']
+              && urgencyRank(request.resource.data.priority)
+                >= urgencyRank(request.resource.data.aiAssessment.severity))));
+    }
+
     function isOwnIncidentCreate(incidentId) {
       return signedIn()
         && request.resource.data.keys().hasOnly([
@@ -168,7 +186,7 @@ service cloud.firestore {
           'description', 'latitude', 'longitude', 'barangayId', 'barangayName',
           'type', 'priority', 'status', 'assignedTo', 'assignedResponder',
           'verifiedBy', 'evidenceImage', 'evidenceFileName', 'hasEvidence',
-          'evidenceUploadedAt', 'createdAt', 'updatedAt'
+          'evidenceUploadedAt', 'createdAt', 'updatedAt', 'aiAssessment'
         ])
         && request.resource.data.id == incidentId
         && request.resource.data.uid == request.auth.uid
@@ -187,6 +205,7 @@ service cloud.firestore {
         && request.resource.data.type.size() > 0
         && request.resource.data.type.size() <= 80
         && request.resource.data.priority in ['Low', 'Medium', 'High', 'Critical']
+        && validIncidentAiAssessment()
         && request.resource.data.status == 'Pending'
         && request.resource.data.hasEvidence is bool
         && request.resource.data.evidenceImage is string
@@ -320,6 +339,20 @@ service cloud.firestore {
       allow read: if signedIn() && resource.data.uid == request.auth.uid;
       allow update: if signedIn() && resource.data.uid == request.auth.uid && validNotificationUpdate();
       allow create: if isBarangay() && validNotificationCreate();
+      allow delete: if isAdmin();
+    }
+
+    // BFP personnel online status for the "Personnel on duty" count.
+    match /presence/{userId} {
+      allow read: if isBfp();
+      allow create, update: if signedIn()
+        && request.auth.uid == userId
+        && role() == 'bfp'
+        && request.resource.data.keys().hasOnly(['uid', 'role', 'online', 'lastSeen'])
+        && request.resource.data.uid == userId
+        && request.resource.data.role == 'bfp'
+        && request.resource.data.online is bool
+        && request.resource.data.lastSeen == request.time;
       allow delete: if isAdmin();
     }
 
