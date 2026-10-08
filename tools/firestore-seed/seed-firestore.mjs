@@ -34,7 +34,7 @@ const legacyAccountEmails = [
 const barangayNames = [
   'Alupay',
   'Antipolo',
-  'BagongPook',
+  'Bagong Pook',
   'Balibago',
   'Bayawang',
   'Baybayin',
@@ -45,7 +45,7 @@ const barangayNames = [
   'Dagatan',
   'Itlugan',
   'Macalamcam A',
-  'MacalamcamB',
+  'Macalamcam B',
   'Malaya',
   'Maligaya',
   'Marilag',
@@ -82,12 +82,20 @@ const barangayNames = [
   'Poblacion H',
 ];
 
-const barangayIdFor = (name) =>
-  name
+// Same ids as the app: these two were first saved without a space.
+const legacyBarangayIds = {
+  bagong_pook: 'bagongpook',
+  macalamcam_b: 'macalamcamb',
+};
+
+const barangayIdFor = (name) => {
+  const id = name
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '_')
     .replace(/^_+|_+$/g, '');
+  return legacyBarangayIds[id] ?? id;
+};
 
 const withTimestamps = (data) => ({
   ...data,

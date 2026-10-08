@@ -7,6 +7,7 @@ Needs:  pip install markdown, and Google Chrome or Microsoft Edge installed.
 import pathlib
 import subprocess
 import sys
+import tempfile
 
 import markdown
 
@@ -61,12 +62,19 @@ def main() -> int:
     if browser is None:
         print("Chrome or Edge not found; open the HTML file and print it to PDF.")
         return 1
-    subprocess.run(
-        [browser, "--headless", "--disable-gpu", "--no-pdf-header-footer",
-         f"--print-to-pdf={PDF_OUT}", HTML_OUT.as_uri()],
-        check=True, capture_output=True,
-    )
+    before = PDF_OUT.stat().st_mtime if PDF_OUT.exists() else 0
+    # A separate profile keeps an already open Chrome from swallowing the job.
+    with tempfile.TemporaryDirectory() as profile:
+        subprocess.run(
+            [browser, "--headless", "--disable-gpu", "--no-pdf-header-footer",
+             f"--user-data-dir={profile}",
+             f"--print-to-pdf={PDF_OUT}", HTML_OUT.as_uri()],
+            check=True, capture_output=True,
+        )
     HTML_OUT.unlink()
+    if not PDF_OUT.exists() or PDF_OUT.stat().st_mtime == before:
+        print("PDF was not updated; close any viewer that has it open and retry.")
+        return 1
     print(f"Wrote {PDF_OUT}")
     return 0
 

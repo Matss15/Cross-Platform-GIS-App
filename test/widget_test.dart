@@ -11,6 +11,14 @@ void main() {
     expect(rosarioBarangays, contains('Poblacion H'));
   });
 
+  test('printed hotline numbers become dialable', () {
+    expect(hotlineDialString('043.312.1102'), '0433121102');
+    expect(hotlineDialString('(02) 8882-4151 to 77'), '0288824151');
+    expect(hotlineDialString('(+632) 9114016'), '+6329114016');
+    expect(hotlineDialString('0920 971 6211 (Smart)'), '09209716211');
+    expect(hotlineDialString('911'), '911');
+  });
+
   test('Firestore role mapping supports admin aliases', () {
     expect(roleFromFirestore('resident'), UserRole.citizen);
     expect(roleFromFirestore('barangay'), UserRole.barangay);
@@ -21,6 +29,11 @@ void main() {
   test('barangay names become stable Firestore ids', () {
     expect(barangayIdFor('Macalamcam A'), 'macalamcam_a');
     expect(barangayIdFor('Poblacion H'), 'poblacion_h');
+    // Spaced names keep the ids first saved without the space.
+    expect(barangayIdFor('Bagong Pook'), 'bagongpook');
+    expect(barangayIdFor('BagongPook'), 'bagongpook');
+    expect(barangayIdFor('Macalamcam B'), 'macalamcamb');
+    expect(canonicalBarangayName('MacalamcamB'), 'Macalamcam B');
   });
 
   test('incident reports are counted per barangay', () {
@@ -174,6 +187,24 @@ void main() {
     expect(find.text('Incident evidence'), findsOneWidget);
     expect(find.text('fire.jpg'), findsOneWidget);
     expect(find.byType(Image), findsOneWidget);
+  });
+
+  testWidgets('emergency hotlines fit a phone-sized viewport', (tester) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(360, 800);
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: SingleChildScrollView(child: EmergencyHotlinesPanel()),
+        ),
+      ),
+    );
+
+    expect(find.text('MDRRMO'), findsOneWidget);
+    expect(find.text('911'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('admin incident row fits an iPhone-sized viewport', (

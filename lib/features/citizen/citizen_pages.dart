@@ -59,7 +59,129 @@ class CitizenDashboard extends StatelessWidget {
             ],
           ),
         ),
+        const SizedBox(height: 18),
+        const EmergencyHotlinesPanel(),
       ],
+    );
+  }
+}
+
+/// Rosario and national hotlines; every number opens the phone dialer.
+class EmergencyHotlinesPanel extends StatelessWidget {
+  const EmergencyHotlinesPanel({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return const Panel(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SectionTitle(
+            title: 'Emergency hotlines',
+            subtitle: 'I-tap ang numero para tumawag.',
+          ),
+          SizedBox(height: 16),
+          _HotlineGroup(
+            title: 'Rosario, Batangas',
+            hotlines: rosarioEmergencyHotlines,
+            color: AppColors.fire,
+          ),
+          SizedBox(height: 20),
+          _HotlineGroup(
+            title: 'National',
+            hotlines: nationalEmergencyHotlines,
+            color: AppColors.blue,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HotlineGroup extends StatelessWidget {
+  const _HotlineGroup({
+    required this.title,
+    required this.hotlines,
+    required this.color,
+  });
+
+  final String title;
+  final List<EmergencyHotline> hotlines;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: TextStyle(color: color, fontWeight: FontWeight.w800),
+        ),
+        const SizedBox(height: 10),
+        ResponsiveGrid(
+          minTileWidth: 260,
+          spacing: 10,
+          maxColumns: 3,
+          children: [
+            for (final hotline in hotlines)
+              _HotlineCard(hotline: hotline, color: color),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _HotlineCard extends StatelessWidget {
+  const _HotlineCard({required this.hotline, required this.color});
+
+  final EmergencyHotline hotline;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.field,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.line),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            hotline.name,
+            style: const TextStyle(fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 6),
+          for (final number in hotline.numbers)
+            InkWell(
+              onTap: () => callPhoneNumber(
+                context,
+                dial: hotlineDialString(number),
+                fallback: '${hotline.name} at $number',
+              ),
+              borderRadius: BorderRadius.circular(8),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 6),
+                child: Row(
+                  children: [
+                    Icon(Icons.call_rounded, size: 18, color: color),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        number,
+                        style: const TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
 }
@@ -496,11 +618,10 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
         address['neighbourhood'],
         address['town'],
       ].whereType<String>().map((value) => value.trim().toLowerCase());
-      final match = rosarioBarangays.firstWhere(
-        (barangay) => candidates.contains(barangay.toLowerCase()),
-        orElse: () => '',
-      );
-      if (!mounted || match.isEmpty) return;
+      final match = candidates
+          .map(canonicalBarangayName)
+          .firstWhere((name) => name != null, orElse: () => null);
+      if (!mounted || match == null) return;
       setState(() => _selectedBarangay = match);
     } catch (_) {
       // A temporary geocoder/network failure must not discard the selected pin.

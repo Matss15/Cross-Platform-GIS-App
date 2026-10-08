@@ -443,9 +443,8 @@ class _EditBiodataDialogState extends State<EditBiodataDialog> {
     _emergencyPhoneController.text = textField(data, 'emergencyContactPhone');
     _biodataController.text = textField(data, 'biodata');
     final currentBarangay = textField(data, 'barangayName');
-    _selectedBarangay = rosarioBarangays.contains(currentBarangay)
-        ? currentBarangay
-        : rosarioBarangays.first;
+    _selectedBarangay =
+        canonicalBarangayName(currentBarangay) ?? rosarioBarangays.first;
   }
 
   @override
