@@ -31,6 +31,13 @@ Future<UserCredential> signInWithFacebook() async {
     return appAuth.signInWithPopup(provider);
   }
 
+  // Android uses Firebase's browser flow (same as web), so the Facebook SDK
+  // App ID / Client Token is not needed in the APK.
+  if (defaultTargetPlatform == TargetPlatform.android) {
+    final provider = FacebookAuthProvider()..addScope('email');
+    return appAuth.signInWithProvider(provider);
+  }
+
   final result = await FacebookAuth.instance.login(permissions: ['email']);
   if (result.status != LoginStatus.success || result.accessToken == null) {
     throw FirebaseAuthException(

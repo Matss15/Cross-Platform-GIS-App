@@ -12,7 +12,20 @@
           "package_name": "com.bfprosario.emergencyresponse"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "886535672450-001c8ivc8bpjehoaha16s1rmtirs51dg.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.bfprosario.emergencyresponse",
+            "certificate_hash": "60eece7a99a33443fdcbe02433ec593a0b1479fd"
+          }
+        },
+        {
+          "client_id": "886535672450-qs71ojer8ofgefrntnuk4otjnki6hj8b.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyDR-KbT79fF-9qBpCpakRSIsf8v-Wb2Ig0"
@@ -20,7 +33,19 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "886535672450-qs71ojer8ofgefrntnuk4otjnki6hj8b.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "886535672450-f8kaqi9mst9ad26nn9tjt96s2ehocm7g.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.flutterApplication1"
+              }
+            }
+          ]
         }
       }
     }
